@@ -500,6 +500,7 @@ fn test_dual_heap_push_pop() {
 	let k = 15;
 	type T = f64;
 	let (data,_sorted_data) = _make_data::<T>(n);
+	/* Test push-pop min */
 	let mut heap = DualHeap::<T,usize>::with_capacity(n);
 	/* Push the first k elements */
 	(0..k).for_each(|i| heap.push(data[i],i));
@@ -508,6 +509,16 @@ fn test_dual_heap_push_pop() {
 	(k..n).for_each(|i| {
 		let (key,_) = heap.push_pop::<true>(data[i],i);
 		assert!(key <= heap.min_heap.iter().map(|x| x.key).reduce(|a,b| if a<b {a} else {b}).unwrap());
+	});
+	/* Test push-pop max */
+	let mut heap = DualHeap::<T,usize>::with_capacity(n);
+	/* Push the first k elements */
+	(0..k).for_each(|i| heap.push(data[i],i));
+	assert_eq!(heap.peek::<false>().unwrap().0, _slice_max(&data[0..k]), "\nSlice: {:?}\nMin heap: {:?}\n", &data[0..k], heap.max_heap.iter().map(|x| x.key).collect::<Vec<_>>());
+	/* Push the rest of the elements and pop min */
+	(k..n).for_each(|i| {
+		let (key,_) = heap.push_pop::<false>(data[i],i);
+		assert!(key >= heap.max_heap.iter().map(|x| x.key).reduce(|a,b| if a<b {a} else {b}).unwrap());
 	});
 }
 
