@@ -12,6 +12,7 @@ pub mod random;
 pub mod types;
 pub mod vec_math;
 
+pub mod graphs;
 pub mod indices;
 
 

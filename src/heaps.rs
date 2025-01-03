@@ -1,5 +1,5 @@
 use std::{
-	cmp::{Eq, Ord, Ordering, PartialEq, PartialOrd}, collections::BinaryHeap, iter::{IntoIterator, Iterator}
+	cmp::{Eq, Ord, Ordering, PartialEq, PartialOrd}, collections::{BinaryHeap, binary_heap::Iter}, iter::{IntoIterator, Iterator}
 };
 
 pub trait HeapKey: PartialOrd+Copy {}
@@ -43,6 +43,9 @@ pub trait GenericHeap: IntoIterator {
 	}
 	fn clear(&mut self) {
 		self.wrapped_heap_mut().clear();
+	}
+	fn iter(&self) -> Iter<'_, Self::Pair> {
+		self.wrapped_heap().iter()
 	}
 }
 

@@ -338,7 +338,7 @@ impl<N: Float> Distance<N> for CosineDistance<N> {
 	<D1: Data<Elem=N>, D2: Data<Elem=N>>
 	(&self, obj1: &ArrayBase<D1, Ix1>, obj2: &ArrayBase<D2, Ix1>) -> N {
 		#[cfg(feature="count_operations")]
-		unsafe {PROD_COUNTER += 1;}
+		unsafe {DIST_COUNTER += 1;}
 		let zero: N = num::Zero::zero();
 		let one: N = num::One::one();
 		let sqnorm1 = obj1.into_iter().map(|&a| a*a).reduce(|a,b| a+b).unwrap_or(num::Zero::zero());
@@ -349,6 +349,26 @@ impl<N: Float> Distance<N> for CosineDistance<N> {
 		.unwrap_or(zero);
 		let cos = dot / zero.max(sqnorm1*sqnorm2).sqrt();
 		one - cos
+	}
+}
+
+#[derive(Debug,Clone)]
+pub struct EuclideanDistance<N: Float> { _marker: PhantomData<N> }
+impl<N: Float> EuclideanDistance<N> {
+	#[allow(dead_code)]
+	pub fn new() -> Self { EuclideanDistance{_marker: PhantomData} }
+}
+impl<N: Float> Distance<N> for EuclideanDistance<N> {
+	fn dist
+	<D1: Data<Elem=N>, D2: Data<Elem=N>>
+	(&self, obj1: &ArrayBase<D1, Ix1>, obj2: &ArrayBase<D2, Ix1>) -> N {
+		#[cfg(feature="count_operations")]
+		unsafe {DIST_COUNTER += 1;}
+		obj1.into_iter().zip(obj2.into_iter())
+		.map(|(&a,&b)| a-b)
+		.map(|a| a*a)
+		.reduce(|a, b| a+b)
+		.unwrap_or(num::Zero::zero()).sqrt()
 	}
 }
 
