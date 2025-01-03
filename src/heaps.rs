@@ -146,8 +146,8 @@ impl<T: HeapKey, V: HeapValue> DualHeap<T,V> {
 		if MIN { self.min_heap[i] > self.min_heap[j] } else { self.max_heap[i] > self.max_heap[j] }
 	}
 	fn _indexed_swap<const MIN: bool>(&mut self, i: usize, j: usize) {
-		assert!(i < self.size);
-		assert!(j < self.size);
+		debug_assert!(i < self.size);
+		debug_assert!(j < self.size);
 		if MIN {
 			self.min_heap.swap(i,j);
 			self.min_idx.swap(i,j);
@@ -203,10 +203,10 @@ impl<T: HeapKey, V: HeapValue> DualHeap<T,V> {
 		self.max_heap.pop();
 		self.min_idx.pop();
 		self.max_idx.pop();
-		assert!(self.size == self.min_heap.len());
-		assert!(self.size == self.max_heap.len());
-		assert!(self.size == self.min_idx.len());
-		assert!(self.size == self.max_idx.len());
+		debug_assert!(self.size == self.min_heap.len());
+		debug_assert!(self.size == self.max_heap.len());
+		debug_assert!(self.size == self.min_idx.len());
+		debug_assert!(self.size == self.max_idx.len());
 	}
 	/// Pop either the maximum or the minimum value from the heap
 	/// dependent on the flag MIN (true=min, false=max).
@@ -252,17 +252,17 @@ impl<T: HeapKey, V: HeapValue> DualHeap<T,V> {
 		self.min_idx.push(self.size);
 		self.max_idx.push(self.size);
 		self.size += 1;
-		assert!(self.size == self.min_heap.len());
-		assert!(self.size == self.max_heap.len());
-		assert!(self.size == self.min_idx.len());
-		assert!(self.size == self.max_idx.len());
+		debug_assert!(self.size == self.min_heap.len());
+		debug_assert!(self.size == self.max_heap.len());
+		debug_assert!(self.size == self.min_idx.len());
+		debug_assert!(self.size == self.max_idx.len());
 	}
 	/// Push a new key-value pair into the heap
 	pub fn push(&mut self, key: T, value: V) {
 		let n = self.size;
 		self._push_ends(key, value);
-		assert!(self.min_idx[n] == n);
-		assert!(self.max_idx[n] == n);
+		debug_assert!(self.min_idx[n] == n);
+		debug_assert!(self.max_idx[n] == n);
 		self._sift_up::<true>(n);
 		self._sift_up::<false>(n);
 	}
