@@ -5,6 +5,7 @@ use std::ops::AddAssign;
 use hdf5::H5Type;
 use num::{NumCast, FromPrimitive, ToPrimitive, Zero, One};
 use paste::paste;
+use num_traits::Bounded;
 
 
 #[macro_export]
@@ -99,9 +100,9 @@ mod python {
 trait_combiner!(Static: 'static);
 trait_combiner!(Sync: (std::marker::Send)+(std::marker::Sync));
 #[cfg(feature="python")]
-trait_combiner!(Number: (python::NumpyEquivalent)+H5Type+NumCast+FromPrimitive+ToPrimitive+Zero+One+Sum+Product+AddAssign+Copy+Clone);
+trait_combiner!(Number: (python::NumpyEquivalent)+Bounded+H5Type+NumCast+FromPrimitive+ToPrimitive+Zero+One+Sum+Product+AddAssign+Copy+Clone);
 #[cfg(not(feature="python"))]
-trait_combiner!(Number: H5Type+NumCast+FromPrimitive+ToPrimitive+Zero+One+Sum+Product+AddAssign+Copy+Clone);
+trait_combiner!(Number: Bounded+H5Type+NumCast+FromPrimitive+ToPrimitive+Zero+One+Sum+Product+AddAssign+Copy+Clone);
 
 macro_rules! make_num_variants {
 	($($baseType:ident),*) => {

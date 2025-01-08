@@ -1,16 +1,17 @@
 use core::panic;
 use std::collections::HashSet;
 
-use ndarray::{Data, Array1, Array2, ArrayBase, Ix1, Ix2};
+use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::data::MatrixDataSource;
 use crate::graphs::Graph;
 use crate::heaps::{DualHeap, GenericHeap, GenericHeapPair, MaxHeap, MaxHeapPair, MinHeap};
 use crate::random::random_unique_uint;
-use crate::types::{UnsignedInteger, Float, trait_combiner};
+use crate::types::{SyncUnsignedInteger, SyncFloat, trait_combiner};
 use crate::measures::Distance;
 
-pub trait IndexedDistance<R: UnsignedInteger, F: Float, Dist: Distance<F>>: MatrixDataSource<F> {
+pub trait IndexedDistance<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>>: MatrixDataSource<F> {
 	fn distance<D1: Data<Elem=F>, D2: Data<Elem=F>>(&self, i: &ArrayBase<D1, Ix1>, j: &ArrayBase<D2, Ix1>) -> F;
 	fn half_indexed_distance<D: Data<Elem=F>>(&self, i: R, q: &ArrayBase<D, Ix1>) -> F {
 		unsafe { self.distance(&self.get_row(i.to_usize().unwrap_unchecked()), q) }
@@ -19,15 +20,15 @@ pub trait IndexedDistance<R: UnsignedInteger, F: Float, Dist: Distance<F>>: Matr
 		unsafe { self.distance(&self.get_row(i.to_usize().unwrap_unchecked()), &self.get_row(j.to_usize().unwrap_unchecked())) }
 	}
 }
-pub trait RangeIndex<R: UnsignedInteger, F: Float, Dist: Distance<F>> {
+pub trait RangeIndex<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>> {
 	fn range_query<D: Data<Elem=F>>(&self, query: &ArrayBase<D, Ix1>, range: F) -> (Array1<R>, Array1<F>);
 	fn range_query_batch<D: Data<Elem=F>>(&self, query: &ArrayBase<D, Ix2>, range: F) -> (Vec<Array1<R>>, Vec<Array1<F>>);
 }
-pub trait KnnIndex<R: UnsignedInteger, F: Float, Dist: Distance<F>> {
+pub trait KnnIndex<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>> {
 	fn knn_query<D: Data<Elem=F>>(&self, query: &ArrayBase<D, Ix1>, k: usize) -> (Array1<R>, Array1<F>);
 	fn knn_query_batch<D: Data<Elem=F>>(&self, query: &ArrayBase<D, Ix2>, k: usize) -> (Array2<R>, Array2<F>);
 }
-trait_combiner!(GeneralIndex[R: UnsignedInteger, F: Float, Dist: (Distance<F>)]: (RangeIndex<R, F, Dist>) + (KnnIndex<R, F, Dist>) + (IndexedDistance<R, F, Dist>) + (MatrixDataSource<F>));
+trait_combiner!(GeneralIndex[R: SyncUnsignedInteger, F: SyncFloat, Dist: (Distance<F>)]: (RangeIndex<R, F, Dist>) + (KnnIndex<R, F, Dist>) + (IndexedDistance<R, F, Dist>) + (MatrixDataSource<F>));
 
 
 
@@ -35,7 +36,7 @@ trait_combiner!(GeneralIndex[R: UnsignedInteger, F: Float, Dist: (Distance<F>)]:
 
 #[derive(Debug, Clone)]
 pub struct NoSuchLayerError;
-pub trait GraphIndex<R: UnsignedInteger, F: Float, Dist: Distance<F>>: GeneralIndex<R, F, Dist> {
+pub trait GraphIndex<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>>: GeneralIndex<R, F, Dist> + Sync {
 	/// Returns the number of layers in the graph index.
 	fn layer_count(&self) -> usize;
 	/// Returns the graph at the given layer if available, otherwise returns an error.
@@ -99,10 +100,23 @@ pub trait GraphIndex<R: UnsignedInteger, F: Float, Dist: Distance<F>>: GeneralIn
 	fn greedy_search_batch<D: Data<Elem=F>>(&self, q: &ArrayBase<D,Ix2>, k_neighbors: usize, max_heap_size: usize) -> (Array2<R>, Array2<F>) {
 		let mut ids = Array2::from_elem((q.dim().0, k_neighbors), R::zero());
 		let mut dists = Array2::from_elem((q.dim().0, k_neighbors), F::zero());
-		q.axis_iter(ndarray::Axis(0)).enumerate().for_each(|(i, q)| {
-			let (ids_i, dists_i) = self.greedy_search(&q, k_neighbors, max_heap_size);
-			ids.index_axis_mut(ndarray::Axis(0), i).assign(&ids_i);
-			dists.index_axis_mut(ndarray::Axis(0), i).assign(&dists_i);
+		let n_threads = rayon::current_num_threads();
+		let n_queries = q.dim().0;
+		let batch_per_thread = (n_queries+n_threads-1)/n_threads;
+		let raw_iter = ids.axis_chunks_iter_mut(Axis(0), batch_per_thread)
+		.zip(dists.axis_chunks_iter_mut(Axis(0), batch_per_thread))
+		.zip(q.axis_chunks_iter(Axis(0), batch_per_thread))
+		.map(|((a,b),c)|(a,b,c)).collect::<Vec<_>>();
+		raw_iter.into_par_iter().for_each(|(mut id_chunk, mut dist_chunk, chunk)| {
+			id_chunk.axis_iter_mut(Axis(0))
+			.zip(dist_chunk.axis_iter_mut(Axis(0)))
+			.zip(chunk.axis_iter(Axis(0)))
+			.map(|((ids, dists), q)| (ids, dists, q))
+			.for_each(|(mut ids, mut dists, q)| {
+				let (ids_i, dists_i) = self.greedy_search(&q, k_neighbors, max_heap_size);
+				ids.assign(&ids_i);
+				dists.assign(&dists_i);
+			});
 		});
 		(ids, dists)
 	}
@@ -130,13 +144,13 @@ pub trait GraphIndex<R: UnsignedInteger, F: Float, Dist: Distance<F>>: GeneralIn
 }
 
 
-pub struct GreedySingleGraphIndex<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> {
+pub struct GreedySingleGraphIndex<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> {
 	_phantom: std::marker::PhantomData<(R,F)>,
 	data: Mat,
 	graph: G,
 	distance: Dist,
 }
-impl<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> GreedySingleGraphIndex<R, F, Dist, Mat, G> {
+impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> GreedySingleGraphIndex<R, F, Dist, Mat, G> {
 	pub fn new(data: Mat, graph: G, distance: Dist) -> Self {
 		Self{
 			_phantom: std::marker::PhantomData,
@@ -146,15 +160,16 @@ impl<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, 
 		}
 	}
 	pub fn n_edges(&self) -> usize { self.graph.n_edges() }
+	pub fn graph(&self) -> &G { &self.graph }
 }
-impl<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> MatrixDataSource<F> for GreedySingleGraphIndex<R, F, Dist, Mat, G> {
+impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> MatrixDataSource<F> for GreedySingleGraphIndex<R, F, Dist, Mat, G> {
 	fn n_rows(&self) -> usize { self.data.n_rows() }
 	fn n_cols(&self) -> usize { self.data.n_cols() }
 	fn get_row(&self, i_row: usize) -> Array1<F> { self.data.get_row(i_row) }
 	fn get_rows(&self, i_rows: &Vec<usize>) -> Array2<F> { self.data.get_rows(i_rows) }
 	fn get_rows_slice(&self, i_row_from: usize, i_row_to: usize) -> Array2<F> { self.data.get_rows_slice(i_row_from, i_row_to) }
 }
-impl<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> RangeIndex<R,F,Dist> for GreedySingleGraphIndex<R, F, Dist, Mat, G> {
+impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> RangeIndex<R,F,Dist> for GreedySingleGraphIndex<R, F, Dist, Mat, G> {
 	fn range_query<D: Data<Elem=F>>(&self, _query: &ArrayBase<D,Ix1>, _range: F) -> (Array1<R>, Array1<F>) {
 		panic!("Not implemented");
 	}
@@ -162,7 +177,7 @@ impl<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, 
 		panic!("Not implemented");
 	}
 }
-impl<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> KnnIndex<R,F,Dist> for GreedySingleGraphIndex<R, F, Dist, Mat, G> {
+impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDataSource<F>+Sync, G: Graph<R>+Sync> KnnIndex<R,F,Dist> for GreedySingleGraphIndex<R, F, Dist, Mat, G> {
 	fn knn_query<D: Data<Elem=F>>(&self, query: &ArrayBase<D,Ix1>, k: usize) -> (Array1<R>, Array1<F>) {
 		self.greedy_search(query, k, 2*k)
 	}
@@ -177,12 +192,12 @@ impl<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, 
 		(ids, dists)
 	}
 }
-impl<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> IndexedDistance<R,F,Dist> for GreedySingleGraphIndex<R, F, Dist, Mat, G> {
+impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> IndexedDistance<R,F,Dist> for GreedySingleGraphIndex<R, F, Dist, Mat, G> {
 	fn distance<D1: Data<Elem=F>, D2: Data<Elem=F>>(&self, i: &ArrayBase<D1,Ix1>, j: &ArrayBase<D2,Ix1>) -> F {
 		self.distance.dist(i, j)
 	}
 }
-impl<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> GraphIndex<R, F, Dist> for GreedySingleGraphIndex<R, F, Dist, Mat, G> {
+impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDataSource<F>+Sync, G: Graph<R>+Sync> GraphIndex<R, F, Dist> for GreedySingleGraphIndex<R, F, Dist, Mat, G> {
 	fn layer_count(&self) -> usize { 1 }
 	fn get_layer(&self, layer: usize) -> Result<&dyn Graph<R>, NoSuchLayerError> { if layer==0 {Ok(&self.graph)} else {Err(NoSuchLayerError)} }
 	fn get_global_layer_ids(&self, _layer: usize) -> Option<&Vec<R>> { None }
@@ -215,14 +230,14 @@ impl<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, 
 	}
 }
 
-pub struct GreedyCappedSingleGraphIndex<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> {
+pub struct GreedyCappedSingleGraphIndex<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> {
 	_phantom: std::marker::PhantomData<(R,F)>,
 	data: Mat,
 	graph: G,
 	distance: Dist,
 	max_frontier_size: usize,
 }
-impl<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> GreedyCappedSingleGraphIndex<R, F, Dist, Mat, G> {
+impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> GreedyCappedSingleGraphIndex<R, F, Dist, Mat, G> {
 	pub fn new(data: Mat, graph: G, distance: Dist, max_frontier_size: usize) -> Self {
 		Self{
 			_phantom: std::marker::PhantomData,
@@ -235,15 +250,16 @@ impl<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, 
 	pub fn n_edges(&self) -> usize { self.graph.n_edges() }
 	pub fn max_frontier_size(&self) -> usize { self.max_frontier_size }
 	pub fn set_max_frontier_size(&mut self, max_frontier_size: usize) { self.max_frontier_size = max_frontier_size; }
+	pub fn graph(&self) -> &G { &self.graph }
 }
-impl<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> MatrixDataSource<F> for GreedyCappedSingleGraphIndex<R, F, Dist, Mat, G> {
+impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> MatrixDataSource<F> for GreedyCappedSingleGraphIndex<R, F, Dist, Mat, G> {
 	fn n_rows(&self) -> usize { self.data.n_rows() }
 	fn n_cols(&self) -> usize { self.data.n_cols() }
 	fn get_row(&self, i_row: usize) -> Array1<F> { self.data.get_row(i_row) }
 	fn get_rows(&self, i_rows: &Vec<usize>) -> Array2<F> { self.data.get_rows(i_rows) }
 	fn get_rows_slice(&self, i_row_from: usize, i_row_to: usize) -> Array2<F> { self.data.get_rows_slice(i_row_from, i_row_to) }
 }
-impl<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> RangeIndex<R,F,Dist> for GreedyCappedSingleGraphIndex<R, F, Dist, Mat, G> {
+impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> RangeIndex<R,F,Dist> for GreedyCappedSingleGraphIndex<R, F, Dist, Mat, G> {
 	fn range_query<D: Data<Elem=F>>(&self, _query: &ArrayBase<D,Ix1>, _range: F) -> (Array1<R>, Array1<F>) {
 		panic!("Not implemented");
 	}
@@ -251,7 +267,7 @@ impl<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, 
 		panic!("Not implemented");
 	}
 }
-impl<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> KnnIndex<R,F,Dist> for GreedyCappedSingleGraphIndex<R, F, Dist, Mat, G> {
+impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDataSource<F>+Sync, G: Graph<R>+Sync> KnnIndex<R,F,Dist> for GreedyCappedSingleGraphIndex<R, F, Dist, Mat, G> {
 	fn knn_query<D: Data<Elem=F>>(&self, query: &ArrayBase<D,Ix1>, k: usize) -> (Array1<R>, Array1<F>) {
 		self.greedy_search(query, k, 2*k)
 	}
@@ -266,12 +282,12 @@ impl<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, 
 		(ids, dists)
 	}
 }
-impl<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> IndexedDistance<R,F,Dist> for GreedyCappedSingleGraphIndex<R, F, Dist, Mat, G> {
+impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> IndexedDistance<R,F,Dist> for GreedyCappedSingleGraphIndex<R, F, Dist, Mat, G> {
 	fn distance<D1: Data<Elem=F>, D2: Data<Elem=F>>(&self, i: &ArrayBase<D1,Ix1>, j: &ArrayBase<D2,Ix1>) -> F {
 		self.distance.dist(i, j)
 	}
 }
-impl<R: UnsignedInteger, F: Float, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> GraphIndex<R, F, Dist> for GreedyCappedSingleGraphIndex<R, F, Dist, Mat, G> {
+impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDataSource<F>+Sync, G: Graph<R>+Sync> GraphIndex<R, F, Dist> for GreedyCappedSingleGraphIndex<R, F, Dist, Mat, G> {
 	fn layer_count(&self) -> usize { 1 }
 	fn get_layer(&self, layer: usize) -> Result<&dyn Graph<R>, NoSuchLayerError> { if layer==0 {Ok(&self.graph)} else {Err(NoSuchLayerError)} }
 	fn get_global_layer_ids(&self, _layer: usize) -> Option<&Vec<R>> { None }

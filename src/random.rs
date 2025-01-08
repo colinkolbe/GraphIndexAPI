@@ -59,7 +59,7 @@ impl RandomPermutationGenerator {
 	fn apply_round(&self, value: usize, i_round: usize) -> usize {
 		((value * self.scaler) ^ self.random_masks[i_round]) & self.bit_mask
 	}
-	fn apply_rounds(&self, mut value: usize) -> usize {
+	pub fn apply_rounds(&self, mut value: usize) -> usize {
 		loop {
 			(0..self.random_masks.len())
 			.for_each(|i_round| value = self.apply_round(value, i_round));

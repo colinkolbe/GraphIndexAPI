@@ -9,6 +9,28 @@ pub trait Graph<R: UnsignedInteger> {
 	fn neighbors(&self, vertex: R) -> Vec<R>;
 	fn add_node(&mut self);
 	fn add_edge(&mut self, vertex1: R, vertex2: R);
+	fn find_edge(&self, vertex1: R, vertex2: R) -> Option<usize> {
+		self.neighbors(vertex1).iter().position(|&v| v == vertex2)
+	}
+	fn remove_edge(&mut self, vertex1: R, vertex2: R) {
+		let index = self.find_edge(vertex1, vertex2);
+		if index.is_some() {
+			self.remove_edge_by_index(vertex1, unsafe{index.unwrap_unchecked()});
+		}
+	}
+	fn remove_edge_by_index(&mut self, vertex: R, index: usize);
+	fn remove_edges_chunk(&mut self, vertex1: R, vertices2: &Vec<R>) {
+		let mut remove_indices = vertices2.iter()
+		.map(|&v| self.find_edge(vertex1, v))
+		.filter(|v| v.is_some())
+		.map(|v| unsafe{v.unwrap_unchecked()})
+		.collect::<Vec<_>>();
+		remove_indices.sort();
+		remove_indices.into_iter().rev().for_each(|i| self.remove_edge_by_index(vertex1, i));
+	}
+	fn add_edges_chunk(&mut self, vertex1: R, vertices2: &Vec<R>) {
+		vertices2.iter().for_each(|&v| self.add_edge(vertex1, v));
+	}
 	fn ego_graph_nodes_hashset(&self, vertex: R, radius: usize) -> Vec<R> {
 		let mut visited = HashSet::new();
 		let mut work = vec![vertex];
@@ -77,7 +99,16 @@ pub trait Graph<R: UnsignedInteger> {
 pub trait WeightedGraph<R: UnsignedInteger, F: Float>: Graph<R> {
 	fn edge_weight(&self, vertex1: R, vertex2: R) -> F;
 	fn add_edge_with_weight(&mut self, vertex1: R, vertex2: R, weight: F);
+	fn add_edges_with_weight_chunk(&mut self, vertex1: R, vertices2: &Vec<R>, weights: &Vec<F>) {
+		vertices2.iter().zip(weights.iter())
+		.for_each(|(&v,&w)| self.add_edge_with_weight(vertex1, v, w));
+	}
+	fn add_edges_with_zipped_weight_chunk(&mut self, vertex1: R, vertices2: &Vec<(R,F)>) {
+		vertices2.iter()
+		.for_each(|&(v,w)| self.add_edge_with_weight(vertex1, v, w));
+	}
 	fn neighbors_with_weights(&self, vertex: R) -> (Vec<R>, Vec<F>);
+	fn neighbors_with_zipped_weights(&self, vertex: R) -> Vec<(R,F)>;
 	fn weighted_ego_graph_nodes(&self, vertex: R, radius: usize) -> (Vec<R>, Vec<F>) {
 		let mut visited = HashMap::new();
 		let mut work = vec![vertex];
@@ -128,7 +159,7 @@ pub trait WeightedGraph<R: UnsignedInteger, F: Float>: Graph<R> {
 		}).collect::<Vec<_>>();
 		/* Add edges if not equal to the previous one (unique edges) */
 		/* If both directions are available with different edge weights, the behavior is undefined */
-		edges.sort_by_key(|(i,j,_)| (*i,*j));
+		edges.sort_by_key(|&(i,j,_)| (i,j));
 		ret.add_edge(edges[0].0, edges[0].1);
 		(1..edges.len())
 		.filter(|&i| edges[i].0 != edges[i-1].0 || edges[i].1 != edges[i-1].1)
@@ -164,6 +195,10 @@ impl<R: UnsignedInteger> Graph<R> for DirLoLGraph<R> {
 		self.adjacency[vertex1.to_usize().unwrap()].push(vertex2);
 		self.n_edges += 1;
 	}
+	fn remove_edge_by_index(&mut self, vertex: R, index: usize) {
+		self.adjacency[vertex.to_usize().unwrap()].swap_remove(index);
+		self.n_edges -= 1;
+	}
 }
 pub struct UndirLoLGraph<R: UnsignedInteger> {
 	adjacency: Vec<Vec<R>>,
@@ -192,6 +227,13 @@ impl<R: UnsignedInteger> Graph<R> for UndirLoLGraph<R> {
 		self.adjacency[vertex2.to_usize().unwrap()].push(vertex1);
 		self.n_edges += 1;
 	}
+	fn remove_edge_by_index(&mut self, vertex: R, index: usize) {
+		self.adjacency[vertex.to_usize().unwrap()].swap_remove(index);
+		let neighbor = self.adjacency[vertex.to_usize().unwrap()][index];
+		let neighbor_index = self.adjacency[neighbor.to_usize().unwrap()].iter().position(|&v| v == vertex).unwrap();
+		self.adjacency[neighbor.to_usize().unwrap()].swap_remove(neighbor_index);
+		self.n_edges -= 1;
+	}
 }
 pub struct WDirLoLGraph<R: UnsignedInteger, F: Float> {
 	adjacency: Vec<Vec<(R,F)>>,
@@ -210,7 +252,7 @@ impl<R: UnsignedInteger, F: Float> Graph<R> for WDirLoLGraph<R,F> {
 		self.n_edges
 	}
 	fn neighbors(&self, vertex: R) -> Vec<R> {
-		self.adjacency[vertex.to_usize().unwrap()].iter().map(|(v,_)| *v).collect()
+		self.adjacency[vertex.to_usize().unwrap()].iter().map(|&(v,_)| v).collect()
 	}
 	fn add_node(&mut self) {
 		self.adjacency.push(Vec::new());
@@ -218,10 +260,14 @@ impl<R: UnsignedInteger, F: Float> Graph<R> for WDirLoLGraph<R,F> {
 	fn add_edge(&mut self, _vertex1: R, _vertex2: R) {
 		panic!("Cannot add edge without weight to a weighted graph");
 	}
+	fn remove_edge_by_index(&mut self, vertex: R, index: usize) {
+		self.adjacency[vertex.to_usize().unwrap()].swap_remove(index);
+		self.n_edges -= 1;
+	}
 }
 impl<R: UnsignedInteger, F: Float> WeightedGraph<R,F> for WDirLoLGraph<R,F> {
 	fn edge_weight(&self, vertex1: R, vertex2: R) -> F {
-		self.adjacency[vertex1.to_usize().unwrap()].iter().find(|(v,_)| *v == vertex2).unwrap().1
+		self.adjacency[vertex1.to_usize().unwrap()].iter().find(|&&(v,_)| v == vertex2).unwrap().1
 	}
 	fn add_edge_with_weight(&mut self, vertex1: R, vertex2: R, weight: F) {
 		self.adjacency[vertex1.to_usize().unwrap()].push((vertex2, weight));
@@ -230,11 +276,14 @@ impl<R: UnsignedInteger, F: Float> WeightedGraph<R,F> for WDirLoLGraph<R,F> {
 	fn neighbors_with_weights(&self, vertex: R) -> (Vec<R>, Vec<F>) {
 		let mut neighbors = Vec::new();
 		let mut weights = Vec::new();
-		for (v,w) in &self.adjacency[vertex.to_usize().unwrap()] {
-			neighbors.push(*v);
-			weights.push(*w);
+		for &(v,w) in &self.adjacency[vertex.to_usize().unwrap()] {
+			neighbors.push(v);
+			weights.push(w);
 		}
 		(neighbors, weights)
+	}
+	fn neighbors_with_zipped_weights(&self, vertex: R) -> Vec<(R,F)> {
+		self.adjacency[vertex.to_usize().unwrap()].clone()
 	}
 }
 pub struct WUndirLoLGraph<R: UnsignedInteger, F: Float> {
@@ -254,7 +303,7 @@ impl<R: UnsignedInteger, F: Float> Graph<R> for WUndirLoLGraph<R,F> {
 		self.n_edges
 	}
 	fn neighbors(&self, vertex: R) -> Vec<R> {
-		self.adjacency[vertex.to_usize().unwrap()].iter().map(|(v,_)| *v).collect()
+		self.adjacency[vertex.to_usize().unwrap()].iter().map(|&(v,_)| v).collect()
 	}
 	fn add_node(&mut self) {
 		self.adjacency.push(Vec::new());
@@ -262,10 +311,17 @@ impl<R: UnsignedInteger, F: Float> Graph<R> for WUndirLoLGraph<R,F> {
 	fn add_edge(&mut self, _vertex1: R, _vertex2: R) {
 		panic!("Cannot add edge without weight to a weighted graph");
 	}
+	fn remove_edge_by_index(&mut self, vertex: R, index: usize) {
+		self.adjacency[vertex.to_usize().unwrap()].swap_remove(index);
+		let neighbor = self.adjacency[vertex.to_usize().unwrap()][index].0;
+		let neighbor_index = self.adjacency[neighbor.to_usize().unwrap()].iter().position(|&v| v.0 == vertex).unwrap();
+		self.adjacency[neighbor.to_usize().unwrap()].swap_remove(neighbor_index);
+		self.n_edges -= 1;
+	}
 }
 impl<R: UnsignedInteger, F: Float> WeightedGraph<R,F> for WUndirLoLGraph<R,F> {
 	fn edge_weight(&self, vertex1: R, vertex2: R) -> F {
-		self.adjacency[vertex1.to_usize().unwrap()].iter().find(|(v,_)| *v == vertex2).unwrap().1
+		self.adjacency[vertex1.to_usize().unwrap()].iter().find(|&&(v,_)| v == vertex2).unwrap().1
 	}
 	fn add_edge_with_weight(&mut self, vertex1: R, vertex2: R, weight: F) {
 		self.adjacency[vertex1.to_usize().unwrap()].push((vertex2, weight));
@@ -275,11 +331,14 @@ impl<R: UnsignedInteger, F: Float> WeightedGraph<R,F> for WUndirLoLGraph<R,F> {
 	fn neighbors_with_weights(&self, vertex: R) -> (Vec<R>, Vec<F>) {
 		let mut neighbors = Vec::new();
 		let mut weights = Vec::new();
-		for (v,w) in &self.adjacency[vertex.to_usize().unwrap()] {
-			neighbors.push(*v);
-			weights.push(*w);
+		for &(v,w) in &self.adjacency[vertex.to_usize().unwrap()] {
+			neighbors.push(v);
+			weights.push(w);
 		}
 		(neighbors, weights)
+	}
+	fn neighbors_with_zipped_weights(&self, vertex: R) -> Vec<(R,F)> {
+		self.adjacency[vertex.to_usize().unwrap()].clone()
 	}
 }
 
