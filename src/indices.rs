@@ -2,7 +2,7 @@ use core::panic;
 use std::collections::HashSet;
 
 use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2};
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::iter::{IntoParallelIterator, ParallelBridge, ParallelIterator};
 
 use crate::data::MatrixDataSource;
 use crate::graphs::Graph;
@@ -31,6 +31,47 @@ pub trait KnnIndex<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>> {
 trait_combiner!(GeneralIndex[R: SyncUnsignedInteger, F: SyncFloat, Dist: (Distance<F>)]: (RangeIndex<R, F, Dist>) + (KnnIndex<R, F, Dist>) + (IndexedDistance<R, F, Dist>) + (MatrixDataSource<F>));
 
 
+
+pub fn bruteforce_neighbors<
+	R: SyncUnsignedInteger,
+	F: SyncFloat,
+	Dist: Distance<F>+Sync,
+	DData: Data<Elem=F>+Sync,
+	QData: Data<Elem=F>,
+>(data: &ArrayBase<DData, Ix2>, queries: &ArrayBase<QData, Ix2>, dist: &Dist, k: usize) -> (Array2<R>, Array2<F>) {
+	let nd = data.n_rows();
+	let nq = queries.n_rows();
+	/* Brute force queries */
+	let mut bruteforce_ids: Array2<R> = Array2::zeros((nq, k));
+	let mut bruteforce_dists: Array2<F> = Array2::zeros((nq, k));
+	let n_threads = rayon::current_num_threads();
+	let chunk_size = (nq + n_threads - 1) / n_threads;
+	unsafe {
+		bruteforce_ids.axis_chunks_iter_mut(Axis(0), chunk_size)
+		.zip(bruteforce_dists.axis_chunks_iter_mut(Axis(0), chunk_size))
+		.zip(queries.axis_chunks_iter(Axis(0), chunk_size))
+		.map(|((a,b),c)|(a,b,c))
+		.par_bridge()
+		.for_each(|(mut id_chunk,mut dist_chunk,q_chunk)| {
+			let mut dist_cache = Vec::with_capacity(nd);
+			id_chunk.axis_iter_mut(Axis(0))
+			.zip(dist_chunk.axis_iter_mut(Axis(0)))
+			.zip(q_chunk.axis_iter(Axis(0)))
+			.map(|((a,b),c)|(a,b,c))
+			.for_each(|(mut ids_target, mut dists_target, q)| {
+				dist_cache.clear();
+				data.axis_iter(Axis(0)).enumerate()
+				.for_each(|(i, x)| dist_cache.push((i,dist.dist(&q, &x))));
+				dist_cache.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+				dist_cache[..k].iter().enumerate().for_each(|(i, &(idx, dist))| {
+					ids_target[i] = R::from_usize(idx).unwrap_unchecked();
+					dists_target[i] = dist;
+				});
+			});
+		});
+		(bruteforce_ids, bruteforce_dists)
+	}
+}
 
 
 
@@ -113,6 +154,7 @@ pub trait GraphIndex<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>>: G
 			.zip(chunk.axis_iter(Axis(0)))
 			.map(|((ids, dists), q)| (ids, dists, q))
 			.for_each(|(mut ids, mut dists, q)| {
+				/* Fixme: This should ideally reuse the same heap memory for each search within a thread */
 				let (ids_i, dists_i) = self.greedy_search(&q, k_neighbors, max_heap_size);
 				ids.assign(&ids_i);
 				dists.assign(&dists_i);
