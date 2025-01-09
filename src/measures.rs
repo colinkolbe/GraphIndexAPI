@@ -1,7 +1,8 @@
 use std::vec::Vec;
 use std::marker::PhantomData;
-use num::Float;
 use ndarray::{Data, Axis, ArrayBase, Array, Array1, Array2, Ix1, Ix2};
+
+use crate::types::Float;
 
 
 /* General definition of inner products with helper functions
@@ -69,7 +70,7 @@ pub trait InnerProduct<N: Float>: Clone {
 		}
 		let p = self.prod(obj1,obj2);
 		let zero: N = num::Zero::zero();
-		zero.max(self.self_prod(obj1)+self.self_prod(obj2)-p-p).sqrt()
+		<N as num_traits::Float>::sqrt(zero.max(self.self_prod(obj1)+self.self_prod(obj2)-p-p))
 		// self.self_prod(&(obj1-obj2)).sqrt()
 	}
 	#[inline(always)]
@@ -127,6 +128,7 @@ impl<N: Float> DotProduct<N> {
 	pub fn new() -> Self { DotProduct{_marker: PhantomData} }
 }
 impl<N: Float> InnerProduct<N> for DotProduct<N> {
+	#[inline(always)]
 	fn prod
 	<D1: Data<Elem=N>, D2: Data<Elem=N>>
 	(&self, obj1: &ArrayBase<D1, Ix1>, obj2: &ArrayBase<D2, Ix1>) -> N {
@@ -148,6 +150,7 @@ impl<N: Float> CosSim<N> {
 	pub fn new() -> Self { CosSim{_marker: PhantomData} }
 }
 impl<N: Float> InnerProduct<N> for CosSim<N> {
+	#[inline(always)]
 	fn prod
 	<D1: Data<Elem=N>, D2: Data<Elem=N>>
 	(&self, obj1: &ArrayBase<D1, Ix1>, obj2: &ArrayBase<D2, Ix1>) -> N {
@@ -160,7 +163,7 @@ impl<N: Float> InnerProduct<N> for CosSim<N> {
 		.map(|(&a,&b)| a * b)
 		.reduce(|a, b| a+b)
 		.unwrap_or(zero);
-		dot / zero.max(sqnorm1*sqnorm2).sqrt()
+		dot / <N as num_traits::Float>::sqrt(zero.max(sqnorm1*sqnorm2))
 	}
 }
 
@@ -175,6 +178,7 @@ impl<N: Float> RBFKernel<N> {
 	}
 }
 impl<N: Float> InnerProduct<N> for RBFKernel<N> {
+	#[inline(always)]
 	fn prod
 	<D1: Data<Elem=N>, D2: Data<Elem=N>>
 	(&self, obj1: &ArrayBase<D1, Ix1>, obj2: &ArrayBase<D2, Ix1>) -> N {
@@ -185,7 +189,7 @@ impl<N: Float> InnerProduct<N> for RBFKernel<N> {
 		.map(|a| a*a)
 		.reduce(|a, b| a+b)
 		.unwrap_or(num::Zero::zero());
-		N::exp(-d2/self.bandwidth)
+		<N as num_traits::Float>::exp(-d2/self.bandwidth)
 	}
 }
 
@@ -200,6 +204,7 @@ impl<N: Float> MahalanobisKernel<N> {
 	}
 }
 impl<N: Float> InnerProduct<N> for MahalanobisKernel<N> {
+	#[inline(always)]
 	fn prod
 	<D1: Data<Elem=N>, D2: Data<Elem=N>>
 	(&self, obj1: &ArrayBase<D1, Ix1>, obj2: &ArrayBase<D2, Ix1>) -> N {
@@ -232,7 +237,7 @@ impl<N: Float> InnerProduct<N> for PolyKernel<N> {
 		.map(|(&a,&b)| a * b)
 		.reduce(|a, b| a+b)
 		.unwrap_or(num::Zero::zero());
-		N::powf(self.scale * dot + self.bias, self.degree)
+		<N as num_traits::Float>::powf(self.scale * dot + self.bias, self.degree)
 	}
 }
 
@@ -256,7 +261,7 @@ impl<N: Float> InnerProduct<N> for SigmoidKernel<N> {
 		.map(|(&a,&b)| a * b)
 		.reduce(|a, b| a+b)
 		.unwrap_or(num::Zero::zero());
-		N::tanh(self.scale * dot + self.bias)
+		<N as num_traits::Float>::tanh(self.scale * dot + self.bias)
 	}
 }
 
@@ -290,9 +295,13 @@ impl<N: Float> InnerProduct<N> for SigmoidKernel<N> {
  * distance functon defined here as induced distance immediately
  * at zero additional cost. */
  pub trait Distance<N: Float>: Clone {
+	#[inline(always)]
 	fn dist
 	<D1: Data<Elem=N>, D2: Data<Elem=N>>
-	(&self, obj1: &ArrayBase<D1, Ix1>, obj2: &ArrayBase<D2, Ix1>) -> N;
+	(&self, obj1: &ArrayBase<D1, Ix1>, obj2: &ArrayBase<D2, Ix1>) -> N {
+		self.dist_slice(&obj1.as_slice().unwrap(), &obj2.as_slice().unwrap())
+	}
+	fn dist_slice(&self, obj1: &&[N], obj2: &&[N]) -> N;
 }
 #[derive(Debug,Clone)]
 pub struct InducedInnerProduct<N: Float, D: Distance<N>> {_phantom: PhantomData<N>, dist: D}
@@ -334,9 +343,8 @@ impl<N: Float> CosineDistance<N> {
 	pub fn new() -> Self { CosineDistance{_marker: PhantomData} }
 }
 impl<N: Float> Distance<N> for CosineDistance<N> {
-	fn dist
-	<D1: Data<Elem=N>, D2: Data<Elem=N>>
-	(&self, obj1: &ArrayBase<D1, Ix1>, obj2: &ArrayBase<D2, Ix1>) -> N {
+	#[inline(always)]
+	fn dist_slice(&self, obj1: &&[N], obj2: &&[N]) -> N {
 		#[cfg(feature="count_operations")]
 		unsafe {DIST_COUNTER += 1;}
 		let zero: N = num::Zero::zero();
@@ -347,28 +355,77 @@ impl<N: Float> Distance<N> for CosineDistance<N> {
 		.map(|(&a,&b)| a * b)
 		.reduce(|a, b| a+b)
 		.unwrap_or(zero);
-		let cos = dot / zero.max(sqnorm1*sqnorm2).sqrt();
+		let cos = dot / <N as num_traits::Float>::sqrt(zero.max(sqnorm1*sqnorm2));
 		one - cos
 	}
+
 }
 
-#[derive(Debug,Clone)]
-pub struct EuclideanDistance<N: Float> { _marker: PhantomData<N> }
-impl<N: Float> EuclideanDistance<N> {
-	#[allow(dead_code)]
-	pub fn new() -> Self { EuclideanDistance{_marker: PhantomData} }
+
+
+#[allow(unused)]
+#[inline(always)]
+fn simple_sq_euc<N: Float>(obj1: &[N], obj2: &[N]) -> N {
+	obj1.into_iter().zip(obj2.into_iter())
+	.map(|(&a,&b)| a-b)
+	.map(|a| a*a)
+	.reduce(|a, b| a+b)
+	.unwrap_or(num::Zero::zero())
 }
-impl<N: Float> Distance<N> for EuclideanDistance<N> {
-	fn dist
-	<D1: Data<Elem=N>, D2: Data<Elem=N>>
-	(&self, obj1: &ArrayBase<D1, Ix1>, obj2: &ArrayBase<D2, Ix1>) -> N {
+#[allow(unused)]
+#[inline(always)]
+fn optimized_sq_euc<N: Float, const LANES: usize>(v1: &[N], v2: &[N], d: usize) -> N {
+	debug_assert!(LANES.count_ones() == 1); // must be power of two; compile time assertion
+	debug_assert!(v1.len() == d && v2.len() == d); // bounds check
+	let sd = d & !(LANES - 1);
+	let mut vsum = [N::zero(); LANES];
+	for i in (0..sd).step_by(LANES) {
+		let (vv, cc) = (&v1[i..(i + LANES)], &v2[i..(i + LANES)]);
+		for j in 0..LANES {
+			unsafe {
+				let x = *vv.get_unchecked(j) - *cc.get_unchecked(j);
+				// emulated
+				// *vsum.get_unchecked_mut(j) = x.mul_add(x, *vsum.get_unchecked(j));
+				// FMA
+				*vsum.get_unchecked_mut(j) += x * x;
+			}
+		}
+	}
+	let mut sum = vsum.into_iter().sum::<N>();
+	if d > sd {
+		sum += (sd..d)
+		.map(|i| unsafe { *v1.get_unchecked(i) - *v2.get_unchecked(i) })
+		.map(|x| x * x)
+		.sum();
+	}
+	sum
+}
+
+
+#[derive(Debug,Clone)]
+pub struct SquaredEuclideanDistance<N: Float> { _marker: PhantomData<N> }
+impl<N: Float> SquaredEuclideanDistance<N> {
+	#[allow(dead_code)]
+	pub fn new() -> Self { SquaredEuclideanDistance{_marker: PhantomData} }
+}
+impl<N: Float> Distance<N> for SquaredEuclideanDistance<N> {
+	#[inline(always)]
+	fn dist_slice(&self, obj1: &&[N], obj2: &&[N]) -> N {
 		#[cfg(feature="count_operations")]
 		unsafe {DIST_COUNTER += 1;}
-		obj1.into_iter().zip(obj2.into_iter())
-		.map(|(&a,&b)| a-b)
-		.map(|a| a*a)
-		.reduce(|a, b| a+b)
-		.unwrap_or(num::Zero::zero()).sqrt()
+		// simple_sq_euc(obj1, obj2)
+		optimized_sq_euc::<_,8>(obj1, obj2, obj1.len())
 	}
 }
+#[derive(Debug,Clone)]
+pub struct EuclideanDistance<N: Float> { sq_euc: SquaredEuclideanDistance<N> }
+impl<N: Float> EuclideanDistance<N> {
+	#[allow(dead_code)]
+	pub fn new() -> Self { EuclideanDistance{ sq_euc: SquaredEuclideanDistance::new() } }
+}
+impl<N: Float> Distance<N> for EuclideanDistance<N> {
+	#[inline(always)]
+	fn dist_slice(&self, obj1: &&[N], obj2: &&[N]) -> N { <N as num_traits::Float>::sqrt(self.sq_euc.dist_slice(obj1, obj2)) }
+}
+
 

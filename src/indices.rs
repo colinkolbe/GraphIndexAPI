@@ -205,9 +205,11 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSou
 	pub fn graph(&self) -> &G { &self.graph }
 }
 impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> MatrixDataSource<F> for GreedySingleGraphIndex<R, F, Dist, Mat, G> {
+	const SUPPORTS_ROW_VIEW: bool = Mat::SUPPORTS_ROW_VIEW;
 	fn n_rows(&self) -> usize { self.data.n_rows() }
 	fn n_cols(&self) -> usize { self.data.n_cols() }
 	fn get_row(&self, i_row: usize) -> Array1<F> { self.data.get_row(i_row) }
+	fn get_row_view(&self, i_row: usize) -> &[F] { self.data.get_row_view(i_row) }
 	fn get_rows(&self, i_rows: &Vec<usize>) -> Array2<F> { self.data.get_rows(i_rows) }
 	fn get_rows_slice(&self, i_row_from: usize, i_row_to: usize) -> Array2<F> { self.data.get_rows_slice(i_row_from, i_row_to) }
 }
@@ -295,9 +297,11 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSou
 	pub fn graph(&self) -> &G { &self.graph }
 }
 impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> MatrixDataSource<F> for GreedyCappedSingleGraphIndex<R, F, Dist, Mat, G> {
+	const SUPPORTS_ROW_VIEW: bool = Mat::SUPPORTS_ROW_VIEW;
 	fn n_rows(&self) -> usize { self.data.n_rows() }
 	fn n_cols(&self) -> usize { self.data.n_cols() }
 	fn get_row(&self, i_row: usize) -> Array1<F> { self.data.get_row(i_row) }
+	fn get_row_view(&self, i_row: usize) -> &[F] { self.data.get_row_view(i_row) }
 	fn get_rows(&self, i_rows: &Vec<usize>) -> Array2<F> { self.data.get_rows(i_rows) }
 	fn get_rows_slice(&self, i_row_from: usize, i_row_to: usize) -> Array2<F> { self.data.get_rows_slice(i_row_from, i_row_to) }
 }

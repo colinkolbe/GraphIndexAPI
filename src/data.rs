@@ -8,9 +8,11 @@ use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix2, Slice, s};
 use crate::types::{SyncFloat, StaticSyncFloat};
 
 pub trait MatrixDataSource<T> {
+	const SUPPORTS_ROW_VIEW: bool;
 	fn n_rows(&self) -> usize;
 	fn n_cols(&self) -> usize;
 	fn get_row(&self, i_row: usize) -> Array1<T>;
+	fn get_row_view(&self, i_row: usize) -> &[T];
 	fn get_rows(&self, i_rows: &Vec<usize>) -> Array2<T>;
 	fn get_rows_slice(&self, i_row_from: usize, i_row_to: usize) -> Array2<T>;
 }
@@ -22,6 +24,7 @@ pub trait AsyncMatrixDataSource<T>: MatrixDataSource<T> {
 
 
 impl<T, M: MatrixDataSource<T>> MatrixDataSource<T> for &M {
+	const SUPPORTS_ROW_VIEW: bool = M::SUPPORTS_ROW_VIEW;
 	#[inline(always)]
 	fn n_rows(&self) -> usize { M::n_rows(&self) }
 	#[inline(always)]
@@ -29,11 +32,14 @@ impl<T, M: MatrixDataSource<T>> MatrixDataSource<T> for &M {
 	#[inline(always)]
 	fn get_row(&self, i_row: usize) -> Array1<T> { M::get_row(&self, i_row) }
 	#[inline(always)]
+	fn get_row_view(&self, i_row: usize) -> &[T] { M::get_row_view(&self, i_row) }
+	#[inline(always)]
 	fn get_rows(&self, i_rows: &Vec<usize>) -> Array2<T> { M::get_rows(&self, i_rows) }
 	#[inline(always)]
 	fn get_rows_slice(&self, i_row_from: usize, i_row_to: usize) -> Array2<T> { M::get_rows_slice(&self, i_row_from, i_row_to) }
 }
 impl<T: Copy+Clone, D: Data<Elem=T>> MatrixDataSource<T> for ArrayBase<D, Ix2> {
+	const SUPPORTS_ROW_VIEW: bool = true;
 	fn n_rows(&self) -> usize {
 		self.shape()[0]
 	}
@@ -42,6 +48,9 @@ impl<T: Copy+Clone, D: Data<Elem=T>> MatrixDataSource<T> for ArrayBase<D, Ix2> {
 	}
 	fn get_row(&self, i_row: usize) -> Array1<T> {
 		self.row(i_row).into_owned()
+	}
+	fn get_row_view(&self, i_row: usize) -> &[T] {
+		self.as_slice().unwrap().split_at(i_row*self.n_cols()).1.split_at(self.n_cols()).0
 	}
 	fn get_rows(&self, i_rows: &Vec<usize>) -> Array2<T> {
 		Array2::from_shape_fn(
@@ -54,6 +63,7 @@ impl<T: Copy+Clone, D: Data<Elem=T>> MatrixDataSource<T> for ArrayBase<D, Ix2> {
 	}
 }
 impl<T: SyncFloat> MatrixDataSource<T> for hdf5::Dataset {
+	const SUPPORTS_ROW_VIEW: bool = false;
 	fn n_rows(&self) -> usize {
 		self.shape()[0]
 	}
@@ -62,6 +72,9 @@ impl<T: SyncFloat> MatrixDataSource<T> for hdf5::Dataset {
 	}
 	fn get_row(&self, i_row: usize) -> Array1<T> {
 		self.read_slice_1d(s![i_row, ..]).unwrap()
+	}
+	fn get_row_view(&self, _i_row: usize) -> &[T] {
+		panic!("Not implemented");
 	}
 	fn get_rows(&self, i_rows: &Vec<usize>) -> Array2<T> {
 		let n_rows = i_rows.len();
@@ -124,6 +137,7 @@ impl<T: StaticSyncFloat> CachingH5Reader<T> {
 	}
 }
 impl<T: StaticSyncFloat> MatrixDataSource<T> for CachingH5Reader<T> {
+	const SUPPORTS_ROW_VIEW: bool = false;
 	fn n_rows(&self) -> usize {
 		<hdf5::Dataset as MatrixDataSource<T>>::n_rows(&self.dataset)
 	}
@@ -132,6 +146,9 @@ impl<T: StaticSyncFloat> MatrixDataSource<T> for CachingH5Reader<T> {
 	}
 	fn get_row(&self, i_row: usize) -> Array1<T> {
 		self.dataset.get_row(i_row)
+	}
+	fn get_row_view(&self, i_row: usize) -> &[T] {
+		self.dataset.get_row_view(i_row)
 	}
 	fn get_rows(&self, i_rows: &Vec<usize>) -> Array2<T> {
 		self.dataset.get_rows(i_rows)
