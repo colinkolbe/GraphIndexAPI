@@ -13,9 +13,11 @@ use crate::measures::Distance;
 
 pub trait IndexedDistance<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>>: MatrixDataSource<F> {
 	fn distance<D1: Data<Elem=F>, D2: Data<Elem=F>>(&self, i: &ArrayBase<D1, Ix1>, j: &ArrayBase<D2, Ix1>) -> F;
+	#[inline(always)]
 	fn half_indexed_distance<D: Data<Elem=F>>(&self, i: R, q: &ArrayBase<D, Ix1>) -> F {
 		unsafe { self.distance(&self.get_row(i.to_usize().unwrap_unchecked()), q) }
 	}
+	#[inline(always)]
 	fn indexed_distance(&self, i: R, j: R) -> F {
 		unsafe { self.distance(&self.get_row(i.to_usize().unwrap_unchecked()), &self.get_row(j.to_usize().unwrap_unchecked())) }
 	}
@@ -193,6 +195,7 @@ pub struct GreedySingleGraphIndex<R: SyncUnsignedInteger, F: SyncFloat, Dist: Di
 	distance: Dist,
 }
 impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> GreedySingleGraphIndex<R, F, Dist, Mat, G> {
+	#[inline(always)]
 	pub fn new(data: Mat, graph: G, distance: Dist) -> Self {
 		Self{
 			_phantom: std::marker::PhantomData,
@@ -201,16 +204,24 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSou
 			distance,
 		}
 	}
+	#[inline(always)]
 	pub fn n_edges(&self) -> usize { self.graph.n_edges() }
+	#[inline(always)]
 	pub fn graph(&self) -> &G { &self.graph }
 }
 impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> MatrixDataSource<F> for GreedySingleGraphIndex<R, F, Dist, Mat, G> {
 	const SUPPORTS_ROW_VIEW: bool = Mat::SUPPORTS_ROW_VIEW;
+	#[inline(always)]
 	fn n_rows(&self) -> usize { self.data.n_rows() }
+	#[inline(always)]
 	fn n_cols(&self) -> usize { self.data.n_cols() }
+	#[inline(always)]
 	fn get_row(&self, i_row: usize) -> Array1<F> { self.data.get_row(i_row) }
+	#[inline(always)]
 	fn get_row_view(&self, i_row: usize) -> &[F] { self.data.get_row_view(i_row) }
+	#[inline(always)]
 	fn get_rows(&self, i_rows: &Vec<usize>) -> Array2<F> { self.data.get_rows(i_rows) }
+	#[inline(always)]
 	fn get_rows_slice(&self, i_row_from: usize, i_row_to: usize) -> Array2<F> { self.data.get_rows_slice(i_row_from, i_row_to) }
 }
 impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> RangeIndex<R,F,Dist> for GreedySingleGraphIndex<R, F, Dist, Mat, G> {
@@ -237,6 +248,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 	}
 }
 impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> IndexedDistance<R,F,Dist> for GreedySingleGraphIndex<R, F, Dist, Mat, G> {
+	#[inline(always)]
 	fn distance<D1: Data<Elem=F>, D2: Data<Elem=F>>(&self, i: &ArrayBase<D1,Ix1>, j: &ArrayBase<D2,Ix1>) -> F {
 		self.distance.dist(i, j)
 	}
@@ -282,6 +294,7 @@ pub struct GreedyCappedSingleGraphIndex<R: SyncUnsignedInteger, F: SyncFloat, Di
 	max_frontier_size: usize,
 }
 impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> GreedyCappedSingleGraphIndex<R, F, Dist, Mat, G> {
+	#[inline(always)]
 	pub fn new(data: Mat, graph: G, distance: Dist, max_frontier_size: usize) -> Self {
 		Self{
 			_phantom: std::marker::PhantomData,
@@ -291,18 +304,28 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSou
 			max_frontier_size,
 		}
 	}
+	#[inline(always)]
 	pub fn n_edges(&self) -> usize { self.graph.n_edges() }
+	#[inline(always)]
 	pub fn max_frontier_size(&self) -> usize { self.max_frontier_size }
+	#[inline(always)]
 	pub fn set_max_frontier_size(&mut self, max_frontier_size: usize) { self.max_frontier_size = max_frontier_size; }
+	#[inline(always)]
 	pub fn graph(&self) -> &G { &self.graph }
 }
 impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> MatrixDataSource<F> for GreedyCappedSingleGraphIndex<R, F, Dist, Mat, G> {
 	const SUPPORTS_ROW_VIEW: bool = Mat::SUPPORTS_ROW_VIEW;
+	#[inline(always)]
 	fn n_rows(&self) -> usize { self.data.n_rows() }
+	#[inline(always)]
 	fn n_cols(&self) -> usize { self.data.n_cols() }
+	#[inline(always)]
 	fn get_row(&self, i_row: usize) -> Array1<F> { self.data.get_row(i_row) }
+	#[inline(always)]
 	fn get_row_view(&self, i_row: usize) -> &[F] { self.data.get_row_view(i_row) }
+	#[inline(always)]
 	fn get_rows(&self, i_rows: &Vec<usize>) -> Array2<F> { self.data.get_rows(i_rows) }
+	#[inline(always)]
 	fn get_rows_slice(&self, i_row_from: usize, i_row_to: usize) -> Array2<F> { self.data.get_rows_slice(i_row_from, i_row_to) }
 }
 impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> RangeIndex<R,F,Dist> for GreedyCappedSingleGraphIndex<R, F, Dist, Mat, G> {
@@ -329,6 +352,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 	}
 }
 impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> IndexedDistance<R,F,Dist> for GreedyCappedSingleGraphIndex<R, F, Dist, Mat, G> {
+	#[inline(always)]
 	fn distance<D1: Data<Elem=F>, D2: Data<Elem=F>>(&self, i: &ArrayBase<D1,Ix1>, j: &ArrayBase<D2,Ix1>) -> F {
 		self.distance.dist(i, j)
 	}

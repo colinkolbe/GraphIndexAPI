@@ -40,42 +40,53 @@ impl<T, M: MatrixDataSource<T>> MatrixDataSource<T> for &M {
 }
 impl<T: Copy+Clone, D: Data<Elem=T>> MatrixDataSource<T> for ArrayBase<D, Ix2> {
 	const SUPPORTS_ROW_VIEW: bool = true;
+	#[inline(always)]
 	fn n_rows(&self) -> usize {
 		self.shape()[0]
 	}
+	#[inline(always)]
 	fn n_cols(&self) -> usize {
 		self.shape()[1]
 	}
+	#[inline(always)]
 	fn get_row(&self, i_row: usize) -> Array1<T> {
 		self.row(i_row).into_owned()
 	}
+	#[inline(always)]
 	fn get_row_view(&self, i_row: usize) -> &[T] {
 		self.as_slice().unwrap().split_at(i_row*self.n_cols()).1.split_at(self.n_cols()).0
 	}
+	#[inline(always)]
 	fn get_rows(&self, i_rows: &Vec<usize>) -> Array2<T> {
 		Array2::from_shape_fn(
 			(i_rows.len(), self.n_cols()),
 			|(i,j)| self[[i_rows[i], j]]
 		)
 	}
+	#[inline(always)]
 	fn get_rows_slice(&self, i_row_from: usize, i_row_to: usize) -> Array2<T> {
 		self.slice_axis(Axis(0), Slice::from(i_row_from..i_row_to.min(self.n_rows()))).to_owned()
 	}
 }
 impl<T: SyncFloat> MatrixDataSource<T> for hdf5::Dataset {
 	const SUPPORTS_ROW_VIEW: bool = false;
+	#[inline(always)]
 	fn n_rows(&self) -> usize {
 		self.shape()[0]
 	}
+	#[inline(always)]
 	fn n_cols(&self) -> usize {
 		self.shape()[1]
 	}
+	#[inline(always)]
 	fn get_row(&self, i_row: usize) -> Array1<T> {
 		self.read_slice_1d(s![i_row, ..]).unwrap()
 	}
+	#[inline(always)]
 	fn get_row_view(&self, _i_row: usize) -> &[T] {
 		panic!("Not implemented");
 	}
+	#[inline(always)]
 	fn get_rows(&self, i_rows: &Vec<usize>) -> Array2<T> {
 		let n_rows = i_rows.len();
 		let n_cols = <hdf5::Dataset as MatrixDataSource<T>>::n_cols(&self);
@@ -138,21 +149,27 @@ impl<T: StaticSyncFloat> CachingH5Reader<T> {
 }
 impl<T: StaticSyncFloat> MatrixDataSource<T> for CachingH5Reader<T> {
 	const SUPPORTS_ROW_VIEW: bool = false;
+	#[inline(always)]
 	fn n_rows(&self) -> usize {
 		<hdf5::Dataset as MatrixDataSource<T>>::n_rows(&self.dataset)
 	}
+	#[inline(always)]
 	fn n_cols(&self) -> usize {
 		<hdf5::Dataset as MatrixDataSource<T>>::n_cols(&self.dataset)
 	}
+	#[inline(always)]
 	fn get_row(&self, i_row: usize) -> Array1<T> {
 		self.dataset.get_row(i_row)
 	}
+	#[inline(always)]
 	fn get_row_view(&self, i_row: usize) -> &[T] {
 		self.dataset.get_row_view(i_row)
 	}
+	#[inline(always)]
 	fn get_rows(&self, i_rows: &Vec<usize>) -> Array2<T> {
 		self.dataset.get_rows(i_rows)
 	}
+	#[inline(always)]
 	fn get_rows_slice(&self, i_row_from: usize, i_row_to: usize) -> Array2<T> {
 		self.dataset.get_rows_slice(i_row_from, i_row_to)
 	}
