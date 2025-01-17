@@ -41,6 +41,7 @@ impl<T: Number> H5PyDataset<T> {
 	}
 }
 impl<T: Number> MatrixDataSource<T> for H5PyDataset<T> {
+	const SUPPORTS_ROW_VIEW: bool = false;
 	fn n_rows(&self) -> usize { self.n_rows }
 	fn n_cols(&self) -> usize { self.n_cols }
 	fn get_row(&self, i_row: usize) -> Array1<T> {
@@ -107,6 +108,9 @@ impl<T: Number> MatrixDataSource<T> for H5PyDataset<T> {
 		});
 		row.unwrap()
 	}
+	fn get_row_view(&self, _i_row: usize) -> &[T] {
+		panic!("Row view not supported for H5PyDataset");
+	}
 }
 
 pub struct CachingH5PyReader<T: StaticNumber> {
@@ -141,6 +145,7 @@ impl<T: StaticNumber> CachingH5PyReader<T> {
 	}
 }
 impl<T: StaticNumber> MatrixDataSource<T> for CachingH5PyReader<T> {
+	const SUPPORTS_ROW_VIEW: bool = H5PyDataset::<T>::SUPPORTS_ROW_VIEW;
 	fn n_rows(&self) -> usize {
 		<H5PyDataset<T> as MatrixDataSource<T>>::n_rows(&self.dataset)
 	}
@@ -155,6 +160,9 @@ impl<T: StaticNumber> MatrixDataSource<T> for CachingH5PyReader<T> {
 	}
 	fn get_rows_slice(&self, i_row_from: usize, i_row_to: usize) -> Array2<T> {
 		self.dataset.get_rows_slice(i_row_from, i_row_to)
+	}
+	fn get_row_view(&self, i_row: usize) -> &[T] {
+		self.dataset.get_row_view(i_row)
 	}
 }
 impl<T: StaticNumber> AsyncMatrixDataSource<T> for CachingH5PyReader<T> {

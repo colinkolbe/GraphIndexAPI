@@ -6,7 +6,7 @@ use crate::types::UnsignedInteger;
 pub fn random_unique_uint<R: UnsignedInteger>(max: usize, n: usize) -> Vec<R> {
 	if n >= max {
 		(0..max).map(|v| R::from_usize(v).unwrap()).collect()
-	} else if n >= max/2 {
+	} else if n > max/2 {
 		let inv_set = random_unique_uint(max, max-n).into_iter().collect::<std::collections::HashSet<R>>();
 		(0..max).map(|v| R::from_usize(v).unwrap()).filter(|v| !inv_set.contains(v)).collect()
 	} else {
@@ -20,6 +20,16 @@ pub fn random_unique_uint<R: UnsignedInteger>(max: usize, n: usize) -> Vec<R> {
 		}
 		ret
 	}
+}
+
+#[test]
+fn test_random_unique_uint() {
+	(0..100).for_each(|max| {
+		(0..100).for_each(|n| {
+			let vals = random_unique_uint::<u64>(max, n);
+			assert!(vals.len() == n.min(max));
+		})
+	})
 }
 
 pub struct RandomPermutationGenerator {
