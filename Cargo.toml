@@ -28,7 +28,7 @@ rayon = "1.7.0"
 half = {version="2.2.1", features=["num-traits"]}
 numpy = {version="0.18.0", features=["half"], optional=true}
 pyo3 = {version="0.18.3", features=["auto-initialize", "multiple-pymethods"], optional=true}
-ahash = "0.8.11"
+foldhash = "0.1.4"
 
 [features]
 default = ["python"]

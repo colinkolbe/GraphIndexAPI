@@ -1,5 +1,5 @@
 use core::panic;
-use ahash::HashSet;
+use foldhash::HashSet;
 
 use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2};
 use rayon::iter::{IntoParallelIterator, ParallelBridge, ParallelIterator};
