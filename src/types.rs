@@ -72,7 +72,7 @@ pub use trait_combiner;
 
 
 #[cfg(feature="python")]
-mod python {
+pub mod python {
 	pub trait NumpyEquivalent: numpy::Element {
 		fn numpy_name() -> &'static str;
 	}

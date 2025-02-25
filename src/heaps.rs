@@ -394,6 +394,53 @@ pub mod new_impl {
 		pub fn as_mut_slice(&mut self) -> &mut [(T,V)] {
 			self.heap.as_mut_slice()
 		}
+		/// Removes and returns the element at index `idx` or None if the index is out of bounds.
+		/// The index describes the position in the underlying vector, not the heap order.
+		/// The index should thus be fetched by using the `iter` function.
+		/// The heap is restructured after the removal.
+		#[inline(always)]
+		pub fn remove_by_idx(&mut self, idx: usize) -> Option<(T,V)> {
+			let n = self.size();
+			if n == 0 || idx >= n { None } else {
+				self._indexed_swap(idx, self.size()-1);
+				let result = self._pop_end();
+				self._sift_down(idx);
+				result
+			}
+		}
+		/// Unsafe version of `remove_by_idx` that does not check the index bounds.
+		#[inline(always)]
+		pub fn remove_by_idx_unchecked(&mut self, idx: usize) -> (T,V) {
+			self._indexed_swap(idx, self.size()-1);
+			let result = self._pop_end();
+			self._sift_down(idx);
+			unsafe{result.unwrap_unchecked()}
+		}
+		/// Updates the key of an element at index `idx` or returns false if the index is out of bounds.
+		/// The index describes the position in the underlying vector, not the heap order.
+		/// The index should thus be fetched by using the `iter` function.
+		/// The heap is restructured after the update.
+		#[inline(always)]
+		pub fn update_key(&mut self, idx: usize, key: T) -> bool {
+			let n = self.size();
+			if n == 0 || idx >= n { false } else {
+				unsafe {
+					let sift_up = if MIN { self.heap.get_unchecked(idx).0 > key } else { self.heap.get_unchecked(idx).0 < key };
+					self.heap.get_unchecked_mut(idx).0 = key;
+					if sift_up { self._sift_up(idx); } else { self._sift_down(idx); }
+				}
+				true
+			}
+		}
+		/// Unsafe version of `update_key` that does not check the index bounds.
+		#[inline(always)]
+		pub fn update_key_unchecked(&mut self, idx: usize, key: T) {
+			unsafe {
+				let sift_up = if MIN { self.heap.get_unchecked(idx).0 > key } else { self.heap.get_unchecked(idx).0 < key };
+				self.heap.get_unchecked_mut(idx).0 = key;
+				if sift_up { self._sift_up(idx); } else { self._sift_down(idx); }
+			}
+		}
 	}
 	
 	pub struct GenericHeapIter<T: HeapKey, V: HeapValue, const MIN: bool> {

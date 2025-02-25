@@ -64,7 +64,7 @@ pub fn bruteforce_neighbors<
 				dist_cache.clear();
 				data.axis_iter(Axis(0)).enumerate()
 				.for_each(|(i, x)| dist_cache.push((i,dist.dist(&q, &x))));
-				dist_cache.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+				dist_cache.sort_unstable_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 				dist_cache[..k].iter().enumerate().for_each(|(i, &(idx, dist))| {
 					ids_target[i] = R::from_usize(idx).unwrap_unchecked();
 					dists_target[i] = dist;
@@ -84,7 +84,7 @@ pub trait GraphIndex<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>>: G
 	fn layer_count(&self) -> usize;
 	/// Returns the graph at the given layer if available, otherwise returns an error.
 	/// 0 is the lowest level, layer_count()-1 is the highest level.
-	fn get_layer(&self, layer: usize) -> Result<&dyn Graph<R>, NoSuchLayerError>;
+	fn get_layer(&self, layer: usize) -> Result<&impl Graph<R>, NoSuchLayerError>;
 	/// Returns a map of the local graph node IDs to the global data IDs.
 	/// If the layer does not have a mapping (i.e. local IDs are global IDs), None is returned.
 	fn get_global_layer_ids(&self, layer: usize) -> Option<&Vec<R>>;
@@ -175,16 +175,14 @@ pub trait GraphIndex<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>>: G
 			/* Get heap from the current layer */
 			heap = self.greedy_search_layer_with_heap(q, heap, max_heap_size, layer).unwrap();
 			/* If it is not the last layer, assume that the layer has an ID map */
-			if layer != 0 {
-				let idx_map = self.get_local_layer_ids(layer);
-				assert!(idx_map.is_some());
-				if idx_map.is_some() {
-					let idx_map = unsafe{idx_map.unwrap_unchecked()};
-					/* Re-index entries in the heap with the local ID map */
-					let mut new_heap = MaxHeap::new();
-					heap.into_iter().for_each(|(d, v)| new_heap.push(d, idx_map[v.to_usize().unwrap()]));
-					heap = new_heap;
-				}
+			let idx_map = self.get_local_layer_ids(layer);
+			if idx_map.is_some() {
+				let idx_map = unsafe{idx_map.unwrap_unchecked()};
+				/* Re-index entries in the heap with the local ID map */
+				heap.iter_mut().for_each(|(_, v)| *v = idx_map[unsafe{v.to_usize().unwrap_unchecked()}]);
+				// let mut new_heap = MaxHeap::new();
+				// heap.into_iter().for_each(|(d, v)| new_heap.push(d, idx_map[v.to_usize().unwrap()]));
+				// heap = new_heap;
 			}
 		}
 		heap
@@ -192,11 +190,14 @@ pub trait GraphIndex<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>>: G
 }
 
 
+
+
 pub struct GreedySingleGraphIndex<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> {
 	_phantom: std::marker::PhantomData<(R,F)>,
 	data: Mat,
 	graph: G,
 	distance: Dist,
+	caches: Vec<DefaultSearchCache<R,F>>,
 }
 impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> GreedySingleGraphIndex<R, F, Dist, Mat, G> {
 	#[inline(always)]
@@ -206,6 +207,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSou
 			data,
 			graph,
 			distance,
+			caches: (0..rayon::current_num_threads()).map(|_| DefaultSearchCache::new(10)).collect(),
 		}
 	}
 	#[inline(always)]
@@ -252,7 +254,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSou
 }
 impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDataSource<F>+Sync, G: Graph<R>+Sync> GraphIndex<R, F, Dist> for GreedySingleGraphIndex<R, F, Dist, Mat, G> {
 	fn layer_count(&self) -> usize { 1 }
-	fn get_layer(&self, layer: usize) -> Result<&dyn Graph<R>, NoSuchLayerError> { if layer==0 {Ok(&self.graph)} else {Err(NoSuchLayerError)} }
+	fn get_layer(&self, layer: usize) -> Result<&impl Graph<R>, NoSuchLayerError> { if layer==0 {Ok(&self.graph)} else {Err(NoSuchLayerError)} }
 	fn get_global_layer_ids(&self, _layer: usize) -> Option<&Vec<R>> { None }
 	fn get_local_layer_ids(&self, _layer: usize) -> Option<&Vec<R>> { None }
 	fn greedy_search_layer_with_heap<D: Data<Elem=F>>(&self, q: &ArrayBase<D,Ix1>, mut heap: MaxHeap<F,R>, max_heap_size: usize, _layer: usize) -> Result<MaxHeap<F,R>, NoSuchLayerError> {
@@ -262,45 +264,23 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 			frontier.push(d, v);
 			visited_set.insert(v);
 		});
-		let viewable_adj_graph = self.graph.as_viewable_adj_graph();
-		if viewable_adj_graph.is_none() {
-			let graph = &self.graph;
-			while let Some((d, v)) = frontier.pop() {
-				if d > heap.peek().unwrap().0 { break; }
-				// if visited_set.contains(&v) { continue; }
-				for i in graph.neighbors(v) {
-					if !visited_set.contains(&i) {
-						let neighbor_dist = self.half_indexed_distance(i, q);
-						if heap.size() < max_heap_size {
-							heap.push(neighbor_dist, i);
-						} else if heap.peek().unwrap().0 > neighbor_dist {
-							heap.pop();
-							heap.push(neighbor_dist, i);
-						}
-						frontier.push(neighbor_dist, i);
-						visited_set.insert(i);
+		let graph = &self.graph;
+		while let Some((d, v)) = frontier.pop() {
+			if d > heap.peek().unwrap().0 { break; }
+			// if visited_set.contains(&v) { continue; }
+			graph.foreach_neighbor(v, |&i| {
+				if !visited_set.contains(&i) {
+					let neighbor_dist = self.half_indexed_distance(i, q);
+					if heap.size() < max_heap_size {
+						heap.push(neighbor_dist, i);
+					} else if heap.peek().unwrap().0 > neighbor_dist {
+						heap.pop();
+						heap.push(neighbor_dist, i);
 					}
+					frontier.push(neighbor_dist, i);
+					visited_set.insert(i);
 				}
-			}
-		} else {
-			let graph = viewable_adj_graph.unwrap();
-			while let Some((d, v)) = frontier.pop() {
-				if d > heap.peek().unwrap().0 { break; }
-				// if visited_set.contains(&v) { continue; }
-				for &i in graph.view_neighbors(v) {
-					if !visited_set.contains(&i) {
-						let neighbor_dist = self.half_indexed_distance(i, q);
-						if heap.size() < max_heap_size {
-							heap.push(neighbor_dist, i);
-						} else if heap.peek().unwrap().0 > neighbor_dist {
-							heap.pop();
-							heap.push(neighbor_dist, i);
-						}
-						frontier.push(neighbor_dist, i);
-						visited_set.insert(i);
-					}
-				}
-			}
+			});
 		}
 		Ok(heap)
 	}
@@ -372,7 +352,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSou
 }
 impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDataSource<F>+Sync, G: Graph<R>+Sync> GraphIndex<R, F, Dist> for GreedyCappedSingleGraphIndex<R, F, Dist, Mat, G> {
 	fn layer_count(&self) -> usize { 1 }
-	fn get_layer(&self, layer: usize) -> Result<&dyn Graph<R>, NoSuchLayerError> { if layer==0 {Ok(&self.graph)} else {Err(NoSuchLayerError)} }
+	fn get_layer(&self, layer: usize) -> Result<&impl Graph<R>, NoSuchLayerError> { if layer==0 {Ok(&self.graph)} else {Err(NoSuchLayerError)} }
 	fn get_global_layer_ids(&self, _layer: usize) -> Option<&Vec<R>> { None }
 	fn get_local_layer_ids(&self, _layer: usize) -> Option<&Vec<R>> { None }
 	fn greedy_search_layer_with_heap<D: Data<Elem=F>>(&self, q: &ArrayBase<D,Ix1>, mut heap: MaxHeap<F,R>, max_heap_size: usize, _layer: usize) -> Result<MaxHeap<F,R>, NoSuchLayerError> {
@@ -386,53 +366,26 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 			}
 			visited_set.insert(v);
 		});
-		let viewable_adj_graph = self.graph.as_viewable_adj_graph();
-		if viewable_adj_graph.is_none() {
-			let graph = &self.graph;
-			while let Some((d, v)) = frontier.pop::<true>() {
-				if d > heap.peek().unwrap().0 { break; }
-				// if visited_set.contains(&v) { continue; }
-				for i in graph.neighbors(v) {
-					if !visited_set.contains(&i) {
-						let neighbor_dist = self.half_indexed_distance(i, q);
-						if heap.size() < max_heap_size {
-							heap.push(neighbor_dist, i);
-						} else if heap.peek().unwrap().0 > neighbor_dist {
-							heap.pop();
-							heap.push(neighbor_dist, i);
-						}
-						if frontier.size() < self.max_frontier_size {
-							frontier.push(neighbor_dist, i);
-						} else {
-							frontier.push_pop::<false>(neighbor_dist, i);
-						}
-						visited_set.insert(i);
+		let graph = &self.graph;
+		while let Some((d, v)) = frontier.pop::<true>() {
+			if d > heap.peek().unwrap().0 { break; }
+			graph.foreach_neighbor(v, |&i| {
+				if !visited_set.contains(&i) {
+					let neighbor_dist = self.half_indexed_distance(i, q);
+					if heap.size() < max_heap_size {
+						heap.push(neighbor_dist, i);
+					} else if heap.peek().unwrap().0 > neighbor_dist {
+						heap.pop();
+						heap.push(neighbor_dist, i);
 					}
-				}
-			}
-		} else {
-			let graph = viewable_adj_graph.unwrap();
-			while let Some((d, v)) = frontier.pop::<true>() {
-				if d > heap.peek().unwrap().0 { break; }
-				// if visited_set.contains(&v) { continue; }
-				for &i in graph.view_neighbors(v) {
-					if !visited_set.contains(&i) {
-						let neighbor_dist = self.half_indexed_distance(i, q);
-						if heap.size() < max_heap_size {
-							heap.push(neighbor_dist, i);
-						} else if heap.peek().unwrap().0 > neighbor_dist {
-							heap.pop();
-							heap.push(neighbor_dist, i);
-						}
-						if frontier.size() < self.max_frontier_size {
-							frontier.push(neighbor_dist, i);
-						} else {
-							frontier.push_pop::<false>(neighbor_dist, i);
-						}
-						visited_set.insert(i);
+					if frontier.size() < self.max_frontier_size {
+						frontier.push(neighbor_dist, i);
+					} else {
+						frontier.push_pop::<false>(neighbor_dist, i);
 					}
+					visited_set.insert(i);
 				}
-			}
+			});
 		}
 		Ok(heap)
 	}
@@ -512,7 +465,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSou
 }
 impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDataSource<F>+Sync, G: Graph<R>+Sync> GraphIndex<R, F, Dist> for GreedyLayeredGraphIndex<R, F, Dist, Mat, G> {
 	fn layer_count(&self) -> usize { self.graphs.len() }
-	fn get_layer(&self, layer: usize) -> Result<&dyn Graph<R>, NoSuchLayerError> { if layer==0 {Ok(&self.graphs[layer])} else {Err(NoSuchLayerError)} }
+	fn get_layer(&self, layer: usize) -> Result<&impl Graph<R>, NoSuchLayerError> { if layer==0 {Ok(&self.graphs[layer])} else {Err(NoSuchLayerError)} }
 	fn get_global_layer_ids(&self, layer: usize) -> Option<&Vec<R>> { if layer>0 && layer<self.graphs.len() {Some(&self.global_layer_ids[layer-1])} else {None} }
 	fn get_local_layer_ids(&self, layer: usize) -> Option<&Vec<R>> { if layer>0 && layer<self.graphs.len() {Some(&self.local_layer_ids[layer-1])} else {None} }
 	fn greedy_search<D: Data<Elem=F>>(&self, q: &ArrayBase<D,Ix1>, k_neighbors: usize, max_heap_size: usize) -> (Array1<R>, Array1<F>) {
@@ -555,87 +508,42 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 			visited_set.insert(v);
 		});
 		let graph = &self.graphs[layer];
-		let viewable_adj_graph = graph.as_viewable_adj_graph();
 		let global_ids = self.get_global_layer_ids(layer);
 		if global_ids.is_none() {
-			if viewable_adj_graph.is_none() {
-				while let Some((d, v)) = frontier.pop() {
-					if d > heap.peek().unwrap().0 { break; }
-					// if visited_set.contains(&v) { continue; }
-					for i in graph.neighbors(v) {
-						if !visited_set.contains(&i) {
-							let neighbor_dist = self.half_indexed_distance(i, q);
-							if heap.size() < max_heap_size {
-								heap.push(neighbor_dist, i);
-							} else if heap.peek().unwrap().0 > neighbor_dist {
-								heap.pop();
-								heap.push(neighbor_dist, i);
-							}
-							frontier.push(neighbor_dist, i);
-							visited_set.insert(i);
+			while let Some((d, v)) = frontier.pop() {
+				if d > heap.peek().unwrap().0 { break; }
+				graph.foreach_neighbor(v, |&i| {
+					if !visited_set.contains(&i) {
+						let neighbor_dist = self.half_indexed_distance(i, q);
+						if heap.size() < max_heap_size {
+							heap.push(neighbor_dist, i);
+						} else if heap.peek().unwrap().0 > neighbor_dist {
+							heap.pop();
+							heap.push(neighbor_dist, i);
 						}
+						frontier.push(neighbor_dist, i);
+						visited_set.insert(i);
 					}
-				}
-			} else {
-				let graph = viewable_adj_graph.unwrap();
-				while let Some((d, v)) = frontier.pop() {
-					if d > heap.peek().unwrap().0 { break; }
-					// if visited_set.contains(&v) { continue; }
-					for &i in graph.view_neighbors(v) {
-						if !visited_set.contains(&i) {
-							let neighbor_dist = self.half_indexed_distance(i, q);
-							if heap.size() < max_heap_size {
-								heap.push(neighbor_dist, i);
-							} else if heap.peek().unwrap().0 > neighbor_dist {
-								heap.pop();
-								heap.push(neighbor_dist, i);
-							}
-							frontier.push(neighbor_dist, i);
-							visited_set.insert(i);
-						}
-					}
-				}
+				});
 			}
 		} else {
 			let global_ids = unsafe{global_ids.unwrap_unchecked()};
 			let to_global = |i: R| unsafe{ global_ids[i.to_usize().unwrap_unchecked()] };
-			if viewable_adj_graph.is_none() {
-				while let Some((d, v)) = frontier.pop() {
-					if d > heap.peek().unwrap().0 { break; }
-					// if visited_set.contains(&v) { continue; }
-					for i in graph.neighbors(v) {
-						if !visited_set.contains(&i) {
-							let neighbor_dist = self.half_indexed_distance(to_global(i), q);
-							if heap.size() < max_heap_size {
-								heap.push(neighbor_dist, i);
-							} else if heap.peek().unwrap().0 > neighbor_dist {
-								heap.pop();
-								heap.push(neighbor_dist, i);
-							}
-							frontier.push(neighbor_dist, i);
-							visited_set.insert(i);
+			while let Some((d, v)) = frontier.pop() {
+				if d > heap.peek().unwrap().0 { break; }
+				graph.foreach_neighbor(v, |&i| {
+					if !visited_set.contains(&i) {
+						let neighbor_dist = self.half_indexed_distance(to_global(i), q);
+						if heap.size() < max_heap_size {
+							heap.push(neighbor_dist, i);
+						} else if heap.peek().unwrap().0 > neighbor_dist {
+							heap.pop();
+							heap.push(neighbor_dist, i);
 						}
+						frontier.push(neighbor_dist, i);
+						visited_set.insert(i);
 					}
-				}
-			} else {
-				let graph = viewable_adj_graph.unwrap();
-				while let Some((d, v)) = frontier.pop() {
-					if d > heap.peek().unwrap().0 { break; }
-					// if visited_set.contains(&v) { continue; }
-					for &i in graph.view_neighbors(v) {
-						if !visited_set.contains(&i) {
-							let neighbor_dist = self.half_indexed_distance(to_global(i), q);
-							if heap.size() < max_heap_size {
-								heap.push(neighbor_dist, i);
-							} else if heap.peek().unwrap().0 > neighbor_dist {
-								heap.pop();
-								heap.push(neighbor_dist, i);
-							}
-							frontier.push(neighbor_dist, i);
-							visited_set.insert(i);
-						}
-					}
-				}
+				});
 			}
 		}
 		Ok(heap)
@@ -720,7 +628,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSou
 }
 impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDataSource<F>+Sync, G: Graph<R>+Sync> GraphIndex<R, F, Dist> for GreedyCappedLayeredGraphIndex<R, F, Dist, Mat, G> {
 	fn layer_count(&self) -> usize { self.graphs.len() }
-	fn get_layer(&self, layer: usize) -> Result<&dyn Graph<R>, NoSuchLayerError> { if layer==0 {Ok(&self.graphs[layer])} else {Err(NoSuchLayerError)} }
+	fn get_layer(&self, layer: usize) -> Result<&impl Graph<R>, NoSuchLayerError> { if layer==0 {Ok(&self.graphs[layer])} else {Err(NoSuchLayerError)} }
 	fn get_global_layer_ids(&self, layer: usize) -> Option<&Vec<R>> { if layer>0 && layer<self.graphs.len() {Some(&self.global_layer_ids[layer-1])} else {None} }
 	fn get_local_layer_ids(&self, layer: usize) -> Option<&Vec<R>> { if layer>0 && layer<self.graphs.len() {Some(&self.local_layer_ids[layer-1])} else {None} }
 	fn greedy_search<D: Data<Elem=F>>(&self, q: &ArrayBase<D,Ix1>, k_neighbors: usize, max_heap_size: usize) -> (Array1<R>, Array1<F>) {
@@ -763,103 +671,51 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 			visited_set.insert(v);
 		});
 		let graph = &self.graphs[layer];
-		let viewable_adj_graph = graph.as_viewable_adj_graph();
 		let global_ids = self.get_global_layer_ids(layer);
 		if global_ids.is_none() {
-			if viewable_adj_graph.is_none() {
-				while let Some((d, v)) = frontier.pop::<true>() {
-					if d > heap.peek().unwrap().0 { break; }
-					// if visited_set.contains(&v) { continue; }
-					for i in graph.neighbors(v) {
-						if !visited_set.contains(&i) {
-							let neighbor_dist = self.half_indexed_distance(i, q);
-							if heap.size() < max_heap_size {
-								heap.push(neighbor_dist, i);
-							} else if heap.peek().unwrap().0 > neighbor_dist {
-								heap.pop();
-								heap.push(neighbor_dist, i);
-							}
-							if frontier.size() < self.max_frontier_size {
-								frontier.push(neighbor_dist, i);
-							} else {
-								frontier.push_pop::<false>(neighbor_dist, i);
-							}
-							visited_set.insert(i);
+			while let Some((d, v)) = frontier.pop::<true>() {
+				if d > heap.peek().unwrap().0 { break; }
+				// if visited_set.contains(&v) { continue; }
+				graph.foreach_neighbor(v, |&i| {
+					if !visited_set.contains(&i) {
+						let neighbor_dist = self.half_indexed_distance(i, q);
+						if heap.size() < max_heap_size {
+							heap.push(neighbor_dist, i);
+						} else if heap.peek().unwrap().0 > neighbor_dist {
+							heap.pop();
+							heap.push(neighbor_dist, i);
 						}
-					}
-				}
-			} else {
-				let graph = viewable_adj_graph.unwrap();
-				while let Some((d, v)) = frontier.pop::<true>() {
-					if d > heap.peek().unwrap().0 { break; }
-					// if visited_set.contains(&v) { continue; }
-					for &i in graph.view_neighbors(v) {
-						if !visited_set.contains(&i) {
-							let neighbor_dist = self.half_indexed_distance(i, q);
-							if heap.size() < max_heap_size {
-								heap.push(neighbor_dist, i);
-							} else if heap.peek().unwrap().0 > neighbor_dist {
-								heap.pop();
-								heap.push(neighbor_dist, i);
-							}
-							if frontier.size() < self.max_frontier_size {
-								frontier.push(neighbor_dist, i);
-							} else {
-								frontier.push_pop::<false>(neighbor_dist, i);
-							}
-							visited_set.insert(i);
+						if frontier.size() < self.max_frontier_size {
+							frontier.push(neighbor_dist, i);
+						} else {
+							frontier.push_pop::<false>(neighbor_dist, i);
 						}
+						visited_set.insert(i);
 					}
-				}
+				});
 			}
 		} else {
 			let global_ids = unsafe{global_ids.unwrap_unchecked()};
 			let to_global = |i: R| unsafe{ global_ids[i.to_usize().unwrap_unchecked()] };
-			if viewable_adj_graph.is_none() {
-				while let Some((d, v)) = frontier.pop::<true>() {
-					if d > heap.peek().unwrap().0 { break; }
-					// if visited_set.contains(&v) { continue; }
-					for i in graph.neighbors(v) {
-						if !visited_set.contains(&i) {
-							let neighbor_dist = self.half_indexed_distance(to_global(i), q);
-							if heap.size() < max_heap_size {
-								heap.push(neighbor_dist, i);
-							} else if heap.peek().unwrap().0 > neighbor_dist {
-								heap.pop();
-								heap.push(neighbor_dist, i);
-							}
-							if frontier.size() < self.max_frontier_size {
-								frontier.push(neighbor_dist, i);
-							} else {
-								frontier.push_pop::<false>(neighbor_dist, i);
-							}
-							visited_set.insert(i);
+			while let Some((d, v)) = frontier.pop::<true>() {
+				if d > heap.peek().unwrap().0 { break; }
+				graph.foreach_neighbor(v, |&i| {
+					if !visited_set.contains(&i) {
+						let neighbor_dist = self.half_indexed_distance(to_global(i), q);
+						if heap.size() < max_heap_size {
+							heap.push(neighbor_dist, i);
+						} else if heap.peek().unwrap().0 > neighbor_dist {
+							heap.pop();
+							heap.push(neighbor_dist, i);
 						}
-					}
-				}
-			} else {
-				let graph = viewable_adj_graph.unwrap();
-				while let Some((d, v)) = frontier.pop::<true>() {
-					if d > heap.peek().unwrap().0 { break; }
-					// if visited_set.contains(&v) { continue; }
-					for &i in graph.view_neighbors(v) {
-						if !visited_set.contains(&i) {
-							let neighbor_dist = self.half_indexed_distance(to_global(i), q);
-							if heap.size() < max_heap_size {
-								heap.push(neighbor_dist, i);
-							} else if heap.peek().unwrap().0 > neighbor_dist {
-								heap.pop();
-								heap.push(neighbor_dist, i);
-							}
-							if frontier.size() < self.max_frontier_size {
-								frontier.push(neighbor_dist, i);
-							} else {
-								frontier.push_pop::<false>(neighbor_dist, i);
-							}
-							visited_set.insert(i);
+						if frontier.size() < self.max_frontier_size {
+							frontier.push(neighbor_dist, i);
+						} else {
+							frontier.push_pop::<false>(neighbor_dist, i);
 						}
+						visited_set.insert(i);
 					}
-				}
+				});
 			}
 		}
 		Ok(heap)
