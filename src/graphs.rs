@@ -7,7 +7,12 @@ pub trait Graph<R: UnsignedInteger> {
 	fn reserve(&mut self, n_vertices: usize);
 	fn n_vertices(&self) -> usize;
 	fn n_edges(&self) -> usize;
+	#[inline(always)]
+	fn clear_neighbors(&mut self, vertex: R) {
+		(0..self.neighbors(vertex).len()).rev().for_each(|i| self.remove_edge_by_index(vertex, i));
+	}
 	fn neighbors(&self, vertex: R) -> Vec<R>;
+	#[inline(always)]
 	fn foreach_neighbor<Fun: FnMut(&R)>(&self, vertex: R, f: Fun) {
 		self.neighbors(vertex).iter().for_each(f);
 	}
@@ -15,9 +20,11 @@ pub trait Graph<R: UnsignedInteger> {
 	fn add_node(&mut self);
 	fn add_node_with_capacity(&mut self, capacity: usize);
 	fn add_edge(&mut self, vertex1: R, vertex2: R);
+	#[inline(always)]
 	fn find_edge(&self, vertex1: R, vertex2: R) -> Option<usize> {
 		self.neighbors(vertex1).iter().position(|&v| v == vertex2)
 	}
+	#[inline(always)]
 	fn remove_edge(&mut self, vertex1: R, vertex2: R) {
 		let index = self.find_edge(vertex1, vertex2);
 		if index.is_some() {
@@ -25,6 +32,7 @@ pub trait Graph<R: UnsignedInteger> {
 		}
 	}
 	fn remove_edge_by_index(&mut self, vertex: R, index: usize);
+	#[inline(always)]
 	fn remove_edges_chunk(&mut self, vertex1: R, vertices2: &Vec<R>) {
 		let mut remove_indices = vertices2.iter()
 		.map(|&v| self.find_edge(vertex1, v))
@@ -34,6 +42,7 @@ pub trait Graph<R: UnsignedInteger> {
 		remove_indices.sort();
 		remove_indices.into_iter().rev().for_each(|i| self.remove_edge_by_index(vertex1, i));
 	}
+	#[inline(always)]
 	fn add_edges_chunk(&mut self, vertex1: R, vertices2: &Vec<R>) {
 		vertices2.iter().for_each(|&v| self.add_edge(vertex1, v));
 	}
@@ -101,22 +110,27 @@ pub trait Graph<R: UnsignedInteger> {
 		.for_each(|i| ret.add_edge(edges[i].0, edges[i].1));
 		ret
 	}
+	#[inline(always)]
 	fn as_viewable_adj_graph(&self) -> Option<&impl ViewableAdjGraph<R>> { None::<&DirLoLGraph<R>> }
+	#[inline(always)]
 	fn as_vec_viewable_adj_graph(&self) -> Option<&impl VecViewableAdjGraph<R>> { None::<&DirLoLGraph<R>> }
 }
 pub trait WeightedGraph<R: UnsignedInteger, F: Float>: Graph<R> {
 	fn edge_weight(&self, vertex1: R, vertex2: R) -> F;
 	fn add_edge_with_weight(&mut self, vertex1: R, vertex2: R, weight: F);
+	#[inline(always)]
 	fn add_edges_with_weight_chunk(&mut self, vertex1: R, vertices2: &Vec<R>, weights: &Vec<F>) {
 		vertices2.iter().zip(weights.iter())
 		.for_each(|(&v,&w)| self.add_edge_with_weight(vertex1, v, w));
 	}
+	#[inline(always)]
 	fn add_edges_with_zipped_weight_chunk(&mut self, vertex1: R, vertices2: &Vec<(F,R)>) {
 		vertices2.iter()
 		.for_each(|&(w,v)| self.add_edge_with_weight(vertex1, v, w));
 	}
 	fn neighbors_with_weights(&self, vertex: R) -> (Vec<F>, Vec<R>);
 	fn neighbors_with_zipped_weights(&self, vertex: R) -> Vec<(F,R)>;
+	#[inline(always)]
 	fn foreach_neighbor_with_zipped_weight<Fun: FnMut(&F, &R)>(&self, vertex: R, mut f: Fun) {
 		self.neighbors_with_zipped_weights(vertex).iter().for_each(|v| f(&v.0,&v.1));
 	}
@@ -178,7 +192,9 @@ pub trait WeightedGraph<R: UnsignedInteger, F: Float>: Graph<R> {
 		.for_each(|i| ret.add_edge_with_weight(edges[i].0, edges[i].1, edges[i].2));
 		ret
 	}
+	#[inline(always)]
 	fn as_viewable_weighted_adj_graph(&self) -> Option<&impl ViewableWeightedAdjGraph<R,F>> { None::<&WDirLoLGraph<R,F>> }
+	#[inline(always)]
 	fn as_vec_viewable_weighted_adj_graph(&self) -> Option<&impl VecViewableWeightedAdjGraph<R,F>> { None::<&WDirLoLGraph<R,F>> }
 }
 pub trait ViewableAdjGraph<R: UnsignedInteger>: Graph<R> {
@@ -204,64 +220,107 @@ pub struct DirLoLGraph<R: UnsignedInteger> {
 	n_edges: usize
 }
 impl<R: UnsignedInteger> DirLoLGraph<R> {
+	#[inline(always)]
 	pub fn new() -> Self {
 		Self{adjacency: vec![], n_edges:0}
 	}
 }
 impl<R: UnsignedInteger> Graph<R> for DirLoLGraph<R> {
+	#[inline(always)]
 	fn reserve(&mut self, n_vertices: usize) {
 		self.adjacency.reserve(n_vertices);
 	}
+	#[inline(always)]
 	fn n_vertices(&self) -> usize {
 		self.adjacency.len()
 	}
+	#[inline(always)]
 	fn n_edges(&self) -> usize {
 		self.n_edges
 	}
+	#[inline(always)]
+	fn clear_neighbors(&mut self, vertex: R) {
+		unsafe {
+			let adj = self.adjacency.get_unchecked_mut(vertex.to_usize().unwrap_unchecked());
+			self.n_edges -= adj.len();
+			adj.clear();
+		}
+	}
+	#[inline(always)]
 	fn neighbors(&self, vertex: R) -> Vec<R> {
-		self.adjacency[vertex.to_usize().unwrap()].clone()
+		unsafe {
+			self.adjacency.get_unchecked(vertex.to_usize().unwrap_unchecked()).clone()
+		}
 	}
+	#[inline(always)]
 	fn foreach_neighbor<Fun: FnMut(&R)>(&self, vertex: R, f: Fun) {
-		self.adjacency[vertex.to_usize().unwrap()].iter().for_each(f);
+		unsafe {
+			self.adjacency.get_unchecked(vertex.to_usize().unwrap_unchecked()).iter().for_each(f);
+		}
 	}
+	#[inline(always)]
 	fn foreach_neighbor_mut<Fun: FnMut(&mut R)>(&mut self, vertex: R, f: Fun) {
-		self.adjacency[vertex.to_usize().unwrap()].iter_mut().for_each(f);
+		unsafe {
+			self.adjacency.get_unchecked_mut(vertex.to_usize().unwrap_unchecked()).iter_mut().for_each(f);
+		}
 	}
+	#[inline(always)]
 	fn add_node(&mut self) {
 		self.adjacency.push(Vec::new());
 	}
+	#[inline(always)]
 	fn add_node_with_capacity(&mut self, capacity: usize) {
 		self.adjacency.push(Vec::with_capacity(capacity));
 	}
+	#[inline(always)]
 	fn add_edge(&mut self, vertex1: R, vertex2: R) {
-		self.adjacency[vertex1.to_usize().unwrap()].push(vertex2);
+		unsafe {
+			self.adjacency.get_unchecked_mut(vertex1.to_usize().unwrap_unchecked()).push(vertex2);
+		}
 		self.n_edges += 1;
 	}
+	#[inline(always)]
 	fn remove_edge_by_index(&mut self, vertex: R, index: usize) {
-		self.adjacency[vertex.to_usize().unwrap()].swap_remove(index);
+		unsafe {
+			self.adjacency.get_unchecked_mut(vertex.to_usize().unwrap_unchecked()).swap_remove(index);
+		}
 		self.n_edges -= 1;
 	}
+	#[inline(always)]
 	fn as_viewable_adj_graph(&self) -> Option<&impl ViewableAdjGraph<R>> {
 		Some(self)
 	}
+	#[inline(always)]
 	fn as_vec_viewable_adj_graph(&self) -> Option<&impl VecViewableAdjGraph<R>> {
 		Some(self)
 	}
 }
 impl<R: UnsignedInteger> ViewableAdjGraph<R> for DirLoLGraph<R> {
+	#[inline(always)]
 	fn view_neighbors(&self, vertex: R) -> &[R] {
-		&self.adjacency[vertex.to_usize().unwrap()]
+		unsafe {
+			self.adjacency.get_unchecked(vertex.to_usize().unwrap_unchecked())
+		}
 	}
+	#[inline(always)]
 	fn view_neighbors_mut(&mut self, vertex: R) -> &mut [R] {
-		&mut self.adjacency[vertex.to_usize().unwrap()]
+		unsafe {
+			self.adjacency.get_unchecked_mut(vertex.to_usize().unwrap_unchecked())
+		}
 	}
 }
 impl<R: UnsignedInteger> VecViewableAdjGraph<R> for DirLoLGraph<R> {
+	#[inline(always)]
 	fn view_neighbors_vec(&self, vertex: R) -> &Vec<R> {
-		&self.adjacency[vertex.to_usize().unwrap()]
+		unsafe {
+			self.adjacency.get_unchecked(vertex.to_usize().unwrap_unchecked())
+		}
 	}
+	#[inline(always)]
 	fn view_neighbors_vec_mut(&mut self, vertex: R) -> &mut Vec<R> {
-		&mut self.adjacency[vertex.to_usize().unwrap()]
+		unsafe {
+			self.adjacency.get_unchecked_mut(vertex.to_usize().unwrap_unchecked())
+		}
 	}
 }
 pub struct UndirLoLGraph<R: UnsignedInteger> {
@@ -269,40 +328,59 @@ pub struct UndirLoLGraph<R: UnsignedInteger> {
 	n_edges: usize
 }
 impl<R: UnsignedInteger> UndirLoLGraph<R> {
+	#[inline(always)]
 	pub fn new() -> Self {
 		Self{adjacency: vec![], n_edges:0}
 	}
 }
 impl<R: UnsignedInteger> Graph<R> for UndirLoLGraph<R> {
+	#[inline(always)]
 	fn reserve(&mut self, n_vertices: usize) {
 		self.adjacency.reserve(n_vertices);
 	}
+	#[inline(always)]
 	fn n_vertices(&self) -> usize {
 		self.adjacency.len()
 	}
+	#[inline(always)]
 	fn n_edges(&self) -> usize {
 		self.n_edges
 	}
+	#[inline(always)]
+	fn clear_neighbors(&mut self, vertex: R) {
+		unsafe {
+			let adj = self.adjacency.get_unchecked_mut(vertex.to_usize().unwrap_unchecked());
+			self.n_edges -= adj.len();
+			adj.clear();
+		}
+	}
+	#[inline(always)]
 	fn neighbors(&self, vertex: R) -> Vec<R> {
 		self.adjacency[vertex.to_usize().unwrap()].clone()
 	}
+	#[inline(always)]
 	fn foreach_neighbor<Fun: FnMut(&R)>(&self, vertex: R, f: Fun) {
 		self.adjacency[vertex.to_usize().unwrap()].iter().for_each(f);
 	}
+	#[inline(always)]
 	fn foreach_neighbor_mut<Fun: FnMut(&mut R)>(&mut self, vertex: R, f: Fun) {
 		self.adjacency[vertex.to_usize().unwrap()].iter_mut().for_each(f);
 	}
+	#[inline(always)]
 	fn add_node(&mut self) {
 		self.adjacency.push(Vec::new());
 	}
+	#[inline(always)]
 	fn add_node_with_capacity(&mut self, capacity: usize) {
 		self.adjacency.push(Vec::with_capacity(capacity));
 	}
+	#[inline(always)]
 	fn add_edge(&mut self, vertex1: R, vertex2: R) {
 		self.adjacency[vertex1.to_usize().unwrap()].push(vertex2);
 		self.adjacency[vertex2.to_usize().unwrap()].push(vertex1);
 		self.n_edges += 1;
 	}
+	#[inline(always)]
 	fn remove_edge_by_index(&mut self, vertex: R, index: usize) {
 		self.adjacency[vertex.to_usize().unwrap()].swap_remove(index);
 		let neighbor = self.adjacency[vertex.to_usize().unwrap()][index];
@@ -310,25 +388,31 @@ impl<R: UnsignedInteger> Graph<R> for UndirLoLGraph<R> {
 		self.adjacency[neighbor.to_usize().unwrap()].swap_remove(neighbor_index);
 		self.n_edges -= 1;
 	}
+	#[inline(always)]
 	fn as_viewable_adj_graph(&self) -> Option<&impl ViewableAdjGraph<R>> {
 		Some(self)
 	}
+	#[inline(always)]
 	fn as_vec_viewable_adj_graph(&self) -> Option<&impl VecViewableAdjGraph<R>> {
 		Some(self)
 	}
 }
 impl<R: UnsignedInteger> ViewableAdjGraph<R> for UndirLoLGraph<R> {
+	#[inline(always)]
 	fn view_neighbors(&self, vertex: R) -> &[R] {
 		&self.adjacency[vertex.to_usize().unwrap()]
 	}
+	#[inline(always)]
 	fn view_neighbors_mut(&mut self, vertex: R) -> &mut [R] {
 		&mut self.adjacency[vertex.to_usize().unwrap()]
 	}
 }
 impl<R: UnsignedInteger> VecViewableAdjGraph<R> for UndirLoLGraph<R> {
+	#[inline(always)]
 	fn view_neighbors_vec(&self, vertex: R) -> &Vec<R> {
 		&self.adjacency[vertex.to_usize().unwrap()]
 	}
+	#[inline(always)]
 	fn view_neighbors_vec_mut(&mut self, vertex: R) -> &mut Vec<R> {
 		&mut self.adjacency[vertex.to_usize().unwrap()]
 	}
@@ -338,51 +422,73 @@ pub struct WDirLoLGraph<R: UnsignedInteger, F: Float> {
 	n_edges: usize
 }
 impl<R: UnsignedInteger, F: Float> WDirLoLGraph<R,F> {
+	#[inline(always)]
 	pub fn new() -> Self {
 		Self{adjacency: vec![], n_edges:0}
 	}
 }
 impl<R: UnsignedInteger, F: Float> Graph<R> for WDirLoLGraph<R,F> {
+	#[inline(always)]
 	fn reserve(&mut self, n_vertices: usize) {
 		self.adjacency.reserve(n_vertices);
 	}
+	#[inline(always)]
 	fn n_vertices(&self) -> usize {
 		self.adjacency.len()
 	}
+	#[inline(always)]
 	fn n_edges(&self) -> usize {
 		self.n_edges
 	}
+	#[inline(always)]
+	fn clear_neighbors(&mut self, vertex: R) {
+		unsafe {
+			let adj = self.adjacency.get_unchecked_mut(vertex.to_usize().unwrap_unchecked());
+			self.n_edges -= adj.len();
+			adj.clear();
+		}
+	}
+	#[inline(always)]
 	fn neighbors(&self, vertex: R) -> Vec<R> {
 		self.adjacency[vertex.to_usize().unwrap()].iter().map(|&(_,v)| v).collect()
 	}
+	#[inline(always)]
 	fn foreach_neighbor<Fun: FnMut(&R)>(&self, vertex: R, mut f: Fun) {
 		self.adjacency[vertex.to_usize().unwrap()].iter().for_each(|v|f(&v.1));
 	}
+	#[inline(always)]
 	fn foreach_neighbor_mut<Fun: FnMut(&mut R)>(&mut self, vertex: R, mut f: Fun) {
 		self.adjacency[vertex.to_usize().unwrap()].iter_mut().for_each(|v|f(&mut v.1));
 	}
+	#[inline(always)]
 	fn add_node(&mut self) {
 		self.adjacency.push(Vec::new());
 	}
+	#[inline(always)]
 	fn add_node_with_capacity(&mut self, capacity: usize) {
 		self.adjacency.push(Vec::with_capacity(capacity));
 	}
+	#[inline(always)]
 	fn add_edge(&mut self, _vertex1: R, _vertex2: R) {
 		panic!("Cannot add edge without weight to a weighted graph");
 	}
+	#[inline(always)]
 	fn remove_edge_by_index(&mut self, vertex: R, index: usize) {
 		self.adjacency[vertex.to_usize().unwrap()].swap_remove(index);
 		self.n_edges -= 1;
 	}
 }
 impl<R: UnsignedInteger, F: Float> WeightedGraph<R,F> for WDirLoLGraph<R,F> {
+	#[inline(always)]
 	fn edge_weight(&self, vertex1: R, vertex2: R) -> F {
 		self.adjacency[vertex1.to_usize().unwrap()].iter().find(|&&(_,v)| v == vertex2).unwrap().0
 	}
+	#[inline(always)]
 	fn add_edge_with_weight(&mut self, vertex1: R, vertex2: R, weight: F) {
 		self.adjacency[vertex1.to_usize().unwrap()].push((weight, vertex2));
 		self.n_edges += 1;
 	}
+	#[inline(always)]
 	fn neighbors_with_weights(&self, vertex: R) -> (Vec<F>, Vec<R>) {
 		let mut neighbors = Vec::new();
 		let mut weights = Vec::new();
@@ -392,34 +498,43 @@ impl<R: UnsignedInteger, F: Float> WeightedGraph<R,F> for WDirLoLGraph<R,F> {
 		}
 		(weights, neighbors)
 	}
+	#[inline(always)]
 	fn neighbors_with_zipped_weights(&self, vertex: R) -> Vec<(F,R)> {
 		self.adjacency[vertex.to_usize().unwrap()].clone()
 	}
+	#[inline(always)]
 	fn foreach_neighbor_with_zipped_weight<Fun: FnMut(&F, &R)>(&self, vertex: R, mut f: Fun) {
 		self.adjacency[vertex.to_usize().unwrap()].iter().for_each(|v| f(&v.0,&v.1));
 	}
+	#[inline(always)]
 	fn foreach_neighbor_with_zipped_weight_mut<Fun: FnMut(&mut F, &mut R)>(&mut self, vertex: R, mut f: Fun) {
 		self.adjacency[vertex.to_usize().unwrap()].iter_mut().for_each(|(w,v)| f(w,v));
 	}
+	#[inline(always)]
 	fn as_viewable_weighted_adj_graph(&self) -> Option<&impl ViewableWeightedAdjGraph<R,F>> {
 		Some(self)
 	}
+	#[inline(always)]
 	fn as_vec_viewable_weighted_adj_graph(&self) -> Option<&impl VecViewableWeightedAdjGraph<R,F>> {
 		Some(self)
 	}
 }
 impl<R: UnsignedInteger, F: Float> ViewableWeightedAdjGraph<R,F> for WDirLoLGraph<R,F> {
+	#[inline(always)]
 	fn view_neighbors(&self, vertex: R) -> &[(F,R)] {
 		&self.adjacency[vertex.to_usize().unwrap()]
 	}
+	#[inline(always)]
 	fn view_neighbors_mut(&mut self, vertex: R) -> &mut [(F,R)] {
 		&mut self.adjacency[vertex.to_usize().unwrap()]
 	}
 }
 impl<R: UnsignedInteger, F: Float> VecViewableWeightedAdjGraph<R,F> for WDirLoLGraph<R,F> {
+	#[inline(always)]
 	fn view_neighbors_vec(&self, vertex: R) -> &Vec<(F,R)> {
 		&self.adjacency[vertex.to_usize().unwrap()]
 	}
+	#[inline(always)]
 	fn view_neighbors_vec_mut(&mut self, vertex: R) -> &mut Vec<(F,R)> {
 		&mut self.adjacency[vertex.to_usize().unwrap()]
 	}
@@ -429,38 +544,57 @@ pub struct WUndirLoLGraph<R: UnsignedInteger, F: Float> {
 	n_edges: usize
 }
 impl<R: UnsignedInteger, F: Float> WUndirLoLGraph<R,F> {
+	#[inline(always)]
 	pub fn new() -> Self {
 		Self{adjacency: vec![], n_edges:0}
 	}
 }
 impl<R: UnsignedInteger, F: Float> Graph<R> for WUndirLoLGraph<R,F> {
+	#[inline(always)]
 	fn reserve(&mut self, n_vertices: usize) {
 		self.adjacency.reserve(n_vertices);
 	}
+	#[inline(always)]
 	fn n_vertices(&self) -> usize {
 		self.adjacency.len()
 	}
+	#[inline(always)]
 	fn n_edges(&self) -> usize {
 		self.n_edges
 	}
+	#[inline(always)]
 	fn neighbors(&self, vertex: R) -> Vec<R> {
 		self.adjacency[vertex.to_usize().unwrap()].iter().map(|&(_,v)| v).collect()
 	}
+	#[inline(always)]
+	fn clear_neighbors(&mut self, vertex: R) {
+		unsafe {
+			let adj = self.adjacency.get_unchecked_mut(vertex.to_usize().unwrap_unchecked());
+			self.n_edges -= adj.len();
+			adj.clear();
+		}
+	}
+	#[inline(always)]
 	fn foreach_neighbor<Fun: FnMut(&R)>(&self, vertex: R, mut f: Fun) {
 		self.adjacency[vertex.to_usize().unwrap()].iter().for_each(|v|f(&v.1));
 	}
+	#[inline(always)]
 	fn foreach_neighbor_mut<Fun: FnMut(&mut R)>(&mut self, vertex: R, mut f: Fun) {
 		self.adjacency[vertex.to_usize().unwrap()].iter_mut().for_each(|v|f(&mut v.1));
 	}
+	#[inline(always)]
 	fn add_node(&mut self) {
 		self.adjacency.push(Vec::new());
 	}
+	#[inline(always)]
 	fn add_node_with_capacity(&mut self, capacity: usize) {
 		self.adjacency.push(Vec::with_capacity(capacity));
 	}
+	#[inline(always)]
 	fn add_edge(&mut self, _vertex1: R, _vertex2: R) {
 		panic!("Cannot add edge without weight to a weighted graph");
 	}
+	#[inline(always)]
 	fn remove_edge_by_index(&mut self, vertex: R, index: usize) {
 		self.adjacency[vertex.to_usize().unwrap()].swap_remove(index);
 		let neighbor = self.adjacency[vertex.to_usize().unwrap()][index].0;
@@ -470,14 +604,17 @@ impl<R: UnsignedInteger, F: Float> Graph<R> for WUndirLoLGraph<R,F> {
 	}
 }
 impl<R: UnsignedInteger, F: Float> WeightedGraph<R,F> for WUndirLoLGraph<R,F> {
+	#[inline(always)]
 	fn edge_weight(&self, vertex1: R, vertex2: R) -> F {
 		self.adjacency[vertex1.to_usize().unwrap()].iter().find(|&&(_,v)| v == vertex2).unwrap().0
 	}
+	#[inline(always)]
 	fn add_edge_with_weight(&mut self, vertex1: R, vertex2: R, weight: F) {
 		self.adjacency[vertex1.to_usize().unwrap()].push((weight, vertex2));
 		self.adjacency[vertex2.to_usize().unwrap()].push((weight, vertex1));
 		self.n_edges += 1;
 	}
+	#[inline(always)]
 	fn neighbors_with_weights(&self, vertex: R) -> (Vec<F>, Vec<R>) {
 		let mut neighbors = Vec::new();
 		let mut weights = Vec::new();
@@ -487,34 +624,43 @@ impl<R: UnsignedInteger, F: Float> WeightedGraph<R,F> for WUndirLoLGraph<R,F> {
 		}
 		(weights, neighbors)
 	}
+	#[inline(always)]
 	fn neighbors_with_zipped_weights(&self, vertex: R) -> Vec<(F,R)> {
 		self.adjacency[vertex.to_usize().unwrap()].clone()
 	}
+	#[inline(always)]
 	fn foreach_neighbor_with_zipped_weight<Fun: FnMut(&F, &R)>(&self, vertex: R, mut f: Fun) {
 		self.adjacency[vertex.to_usize().unwrap()].iter().for_each(|v| f(&v.0,&v.1));
 	}
+	#[inline(always)]
 	fn foreach_neighbor_with_zipped_weight_mut<Fun: FnMut(&mut F, &mut R)>(&mut self, vertex: R, mut f: Fun) {
 		self.adjacency[vertex.to_usize().unwrap()].iter_mut().for_each(|(w,v)| f(w,v));
 	}
+	#[inline(always)]
 	fn as_viewable_weighted_adj_graph(&self) -> Option<&impl ViewableWeightedAdjGraph<R,F>> {
 		Some(self)
 	}
+	#[inline(always)]
 	fn as_vec_viewable_weighted_adj_graph(&self) -> Option<&impl VecViewableWeightedAdjGraph<R,F>> {
 		Some(self)
 	}
 }
 impl<R: UnsignedInteger, F: Float> ViewableWeightedAdjGraph<R,F> for WUndirLoLGraph<R,F> {
+	#[inline(always)]
 	fn view_neighbors(&self, vertex: R) -> &[(F,R)] {
 		&self.adjacency[vertex.to_usize().unwrap()]
 	}
+	#[inline(always)]
 	fn view_neighbors_mut(&mut self, vertex: R) -> &mut [(F,R)] {
 		&mut self.adjacency[vertex.to_usize().unwrap()]
 	}
 }
 impl<R: UnsignedInteger, F: Float> VecViewableWeightedAdjGraph<R,F> for WUndirLoLGraph<R,F> {
+	#[inline(always)]
 	fn view_neighbors_vec(&self, vertex: R) -> &Vec<(F,R)> {
 		&self.adjacency[vertex.to_usize().unwrap()]
 	}
+	#[inline(always)]
 	fn view_neighbors_vec_mut(&mut self, vertex: R) -> &mut Vec<(F,R)> {
 		&mut self.adjacency[vertex.to_usize().unwrap()]
 	}
