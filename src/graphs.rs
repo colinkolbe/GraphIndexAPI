@@ -8,6 +8,8 @@ pub trait Graph<R: UnsignedInteger> {
 	fn n_vertices(&self) -> usize;
 	fn n_edges(&self) -> usize;
 	#[inline(always)]
+	fn degree(&self, vertex: R) -> usize { self.neighbors(vertex).len() }
+	#[inline(always)]
 	fn clear_neighbors(&mut self, vertex: R) {
 		(0..self.neighbors(vertex).len()).rev().for_each(|i| self.remove_edge_by_index(vertex, i));
 	}
@@ -17,6 +19,7 @@ pub trait Graph<R: UnsignedInteger> {
 		self.neighbors(vertex).iter().for_each(f);
 	}
 	fn foreach_neighbor_mut<Fun: FnMut(&mut R)>(&mut self, vertex: R, f: Fun);
+	fn iter_neighbors<'a>(&'a self, vertex: R) -> impl Iterator<Item=&'a R>;
 	fn add_node(&mut self);
 	fn add_node_with_capacity(&mut self, capacity: usize);
 	fn add_edge(&mut self, vertex1: R, vertex2: R);
@@ -88,9 +91,9 @@ pub trait Graph<R: UnsignedInteger> {
 	}
 	fn as_dir_lol_graph(&self) -> DirLoLGraph<R> {
 		let mut ret = DirLoLGraph::new();
-		(0..self.n_vertices()).for_each(|_| ret.add_node());
+		(0..self.n_vertices()).map(|i| unsafe{R::from_usize(i).unwrap_unchecked()}).for_each(|i| ret.add_node_with_capacity(self.degree(i)));
 		(0..self.n_vertices()).map(|i| unsafe{R::from_usize(i).unwrap_unchecked()}).for_each(|i| {
-			self.neighbors(i).into_iter().for_each(|j| ret.add_edge(i, j));
+			self.foreach_neighbor(i, |j| ret.add_edge(i, *j));
 		});
 		ret
 	}
@@ -239,6 +242,12 @@ impl<R: UnsignedInteger> Graph<R> for DirLoLGraph<R> {
 		self.n_edges
 	}
 	#[inline(always)]
+	fn degree(&self, vertex: R) -> usize {
+		unsafe {
+			self.adjacency.get_unchecked(vertex.to_usize().unwrap_unchecked()).len()
+		}
+	}
+	#[inline(always)]
 	fn clear_neighbors(&mut self, vertex: R) {
 		unsafe {
 			let adj = self.adjacency.get_unchecked_mut(vertex.to_usize().unwrap_unchecked());
@@ -262,6 +271,12 @@ impl<R: UnsignedInteger> Graph<R> for DirLoLGraph<R> {
 	fn foreach_neighbor_mut<Fun: FnMut(&mut R)>(&mut self, vertex: R, f: Fun) {
 		unsafe {
 			self.adjacency.get_unchecked_mut(vertex.to_usize().unwrap_unchecked()).iter_mut().for_each(f);
+		}
+	}
+	#[inline(always)]
+	fn iter_neighbors<'a>(&'a self, vertex: R) -> impl Iterator<Item=&'a R> {
+		unsafe {
+			self.adjacency.get_unchecked(vertex.to_usize().unwrap_unchecked()).iter()
 		}
 	}
 	#[inline(always)]
@@ -359,12 +374,24 @@ impl<R: UnsignedInteger> Graph<R> for UndirLoLGraph<R> {
 		self.adjacency[vertex.to_usize().unwrap()].clone()
 	}
 	#[inline(always)]
+	fn degree(&self, vertex: R) -> usize {
+		unsafe {
+			self.adjacency.get_unchecked(vertex.to_usize().unwrap_unchecked()).len()
+		}
+	}
+	#[inline(always)]
 	fn foreach_neighbor<Fun: FnMut(&R)>(&self, vertex: R, f: Fun) {
 		self.adjacency[vertex.to_usize().unwrap()].iter().for_each(f);
 	}
 	#[inline(always)]
 	fn foreach_neighbor_mut<Fun: FnMut(&mut R)>(&mut self, vertex: R, f: Fun) {
 		self.adjacency[vertex.to_usize().unwrap()].iter_mut().for_each(f);
+	}
+	#[inline(always)]
+	fn iter_neighbors<'a>(&'a self, vertex: R) -> impl Iterator<Item=&'a R> {
+		unsafe {
+			self.adjacency.get_unchecked(vertex.to_usize().unwrap_unchecked()).iter()
+		}
 	}
 	#[inline(always)]
 	fn add_node(&mut self) {
@@ -441,6 +468,12 @@ impl<R: UnsignedInteger, F: Float> Graph<R> for WDirLoLGraph<R,F> {
 		self.n_edges
 	}
 	#[inline(always)]
+	fn degree(&self, vertex: R) -> usize {
+		unsafe {
+			self.adjacency.get_unchecked(vertex.to_usize().unwrap_unchecked()).len()
+		}
+	}
+	#[inline(always)]
 	fn clear_neighbors(&mut self, vertex: R) {
 		unsafe {
 			let adj = self.adjacency.get_unchecked_mut(vertex.to_usize().unwrap_unchecked());
@@ -459,6 +492,12 @@ impl<R: UnsignedInteger, F: Float> Graph<R> for WDirLoLGraph<R,F> {
 	#[inline(always)]
 	fn foreach_neighbor_mut<Fun: FnMut(&mut R)>(&mut self, vertex: R, mut f: Fun) {
 		self.adjacency[vertex.to_usize().unwrap()].iter_mut().for_each(|v|f(&mut v.1));
+	}
+	#[inline(always)]
+	fn iter_neighbors<'a>(&'a self, vertex: R) -> impl Iterator<Item=&'a R> {
+		unsafe {
+			self.adjacency.get_unchecked(vertex.to_usize().unwrap_unchecked()).iter().map(|v|&v.1)
+		}
 	}
 	#[inline(always)]
 	fn add_node(&mut self) {
@@ -563,6 +602,12 @@ impl<R: UnsignedInteger, F: Float> Graph<R> for WUndirLoLGraph<R,F> {
 		self.n_edges
 	}
 	#[inline(always)]
+	fn degree(&self, vertex: R) -> usize {
+		unsafe {
+			self.adjacency.get_unchecked(vertex.to_usize().unwrap_unchecked()).len()
+		}
+	}
+	#[inline(always)]
 	fn neighbors(&self, vertex: R) -> Vec<R> {
 		self.adjacency[vertex.to_usize().unwrap()].iter().map(|&(_,v)| v).collect()
 	}
@@ -581,6 +626,12 @@ impl<R: UnsignedInteger, F: Float> Graph<R> for WUndirLoLGraph<R,F> {
 	#[inline(always)]
 	fn foreach_neighbor_mut<Fun: FnMut(&mut R)>(&mut self, vertex: R, mut f: Fun) {
 		self.adjacency[vertex.to_usize().unwrap()].iter_mut().for_each(|v|f(&mut v.1));
+	}
+	#[inline(always)]
+	fn iter_neighbors<'a>(&'a self, vertex: R) -> impl Iterator<Item=&'a R> {
+		unsafe {
+			self.adjacency.get_unchecked(vertex.to_usize().unwrap_unchecked()).iter().map(|v|&v.1)
+		}
 	}
 	#[inline(always)]
 	fn add_node(&mut self) {
