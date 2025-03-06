@@ -414,7 +414,7 @@ impl<N: Float> Distance<N> for SquaredEuclideanDistance<N> {
 		#[cfg(feature="count_operations")]
 		unsafe {DIST_COUNTER += 1;}
 		// simple_sq_euc(obj1, obj2)
-		optimized_sq_euc::<_,8>(obj1, obj2, obj1.len())
+		optimized_sq_euc::<_,4>(obj1, obj2, obj1.len())
 	}
 }
 #[derive(Debug,Clone)]
