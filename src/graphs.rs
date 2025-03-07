@@ -113,6 +113,30 @@ pub trait Graph<R: UnsignedInteger> {
 		.for_each(|i| ret.add_edge(edges[i].0, edges[i].1));
 		ret
 	}
+	fn as_fat_dir_graph(&self, id_remap: Option<Vec<R>>, n_vertices_override: Option<usize>, max_degree_override: Option<usize>) -> FatDirGraph<R> {
+		let max_degree = max_degree_override.unwrap_or((0..self.n_vertices()).map(|i| unsafe{R::from_usize(i).unwrap_unchecked()}).map(|i| self.degree(i)).max().unwrap());
+		let n_vertices = n_vertices_override.unwrap_or(self.n_vertices());
+		let mut data = Vec::with_capacity(self.n_vertices()*(max_degree+1));
+		let mut n_edges = 0;
+		unsafe{data.set_len(n_vertices*(max_degree+1));}
+		(0..n_vertices).for_each(|i| data[i*(max_degree+1)] = R::zero());
+		(0..self.n_vertices()).for_each(|i_usize| {
+			let i = unsafe{R::from_usize(i_usize).unwrap_unchecked()};
+			let degree = self.degree(i);
+			n_edges += degree;
+			let i_new = unsafe{id_remap.as_ref().map(|v| v[i_usize]).unwrap_or(i).to_usize().unwrap_unchecked()};
+			let start = i_new * (max_degree+1);
+			data[start] = unsafe{R::from(degree).unwrap_unchecked()};
+			let start = start+1;
+			self.iter_neighbors(i).enumerate().for_each(|(i_neighbor, j)| data[start+i_neighbor] = *j);
+		});
+		FatDirGraph {
+			data,
+			n_vertices,
+			n_edges,
+			max_degree,
+		}
+	}
 	#[inline(always)]
 	fn as_viewable_adj_graph(&self) -> Option<&impl ViewableAdjGraph<R>> { None::<&DirLoLGraph<R>> }
 	#[inline(always)]
@@ -717,3 +741,124 @@ impl<R: UnsignedInteger, F: Float> VecViewableWeightedAdjGraph<R,F> for WUndirLo
 	}
 }
 
+
+
+pub struct FatDirGraph<R: UnsignedInteger> {
+	data: Vec<R>,
+	n_vertices: usize,
+	max_degree: usize,
+	n_edges: usize,
+}
+impl<R: UnsignedInteger> FatDirGraph<R> {
+	#[inline(always)]
+	pub fn new(max_degree: usize) -> Self {
+		Self{data: Vec::new(), n_vertices: 0, max_degree: max_degree, n_edges: 0}
+	}
+}
+impl<R: UnsignedInteger> Graph<R> for FatDirGraph<R> {
+	#[inline(always)]
+	fn reserve(&mut self, n_vertices: usize) {
+		self.data.reserve((self.max_degree+1)*n_vertices);
+	}
+	#[inline(always)]
+	fn n_vertices(&self) -> usize {
+		self.n_vertices
+	}
+	#[inline(always)]
+	fn n_edges(&self) -> usize {
+		self.n_edges
+	}
+	#[inline(always)]
+	fn degree(&self, vertex: R) -> usize {
+		unsafe {
+			let start = vertex.to_usize().unwrap_unchecked() * (self.max_degree+1);
+			self.data.get_unchecked(start).to_usize().unwrap_unchecked()
+		}
+	}
+	#[inline(always)]
+	fn clear_neighbors(&mut self, vertex: R) {
+		unsafe {
+			let start = vertex.to_usize().unwrap_unchecked() * (self.max_degree+1);
+			*self.data.get_unchecked_mut(start) = R::zero()
+		}
+	}
+	#[inline(always)]
+	fn neighbors(&self, vertex: R) -> Vec<R> {
+		self.view_neighbors(vertex).iter().cloned().collect()
+	}
+	#[inline(always)]
+	fn foreach_neighbor<Fun: FnMut(&R)>(&self, vertex: R, f: Fun) {
+		self.view_neighbors(vertex).iter().for_each(f);
+	}
+	#[inline(always)]
+	fn foreach_neighbor_mut<Fun: FnMut(&mut R)>(&mut self, vertex: R, f: Fun) {
+		self.view_neighbors_mut(vertex).iter_mut().for_each(f);
+	}
+	#[inline(always)]
+	fn iter_neighbors<'a>(&'a self, vertex: R) -> impl Iterator<Item=&'a R> {
+		self.view_neighbors(vertex).iter()
+	}
+	#[inline(always)]
+	fn add_node(&mut self) {
+		self.data.reserve(self.max_degree+1);
+		let curr_len = self.data.len();
+		unsafe{self.data.set_len(curr_len+self.max_degree+1);}
+		self.data[curr_len] = R::zero();
+	}
+	#[inline(always)]
+	fn add_node_with_capacity(&mut self, capacity: usize) {
+		assert!(capacity <= self.max_degree);
+		self.add_node();
+	}
+	#[inline(always)]
+	fn add_edge(&mut self, vertex1: R, vertex2: R) {
+		unsafe {
+			let start = vertex1.to_usize().unwrap_unchecked() * (self.max_degree+1);
+			let n_neighbors = self.data.get_unchecked(start).to_usize().unwrap_unchecked();
+			assert!(n_neighbors < self.max_degree);
+			let start = start+1;
+			let end = start+n_neighbors;
+			*self.data.get_unchecked_mut(end) = vertex2;
+		}
+		self.n_edges += 1;
+	}
+	#[inline(always)]
+	fn remove_edge_by_index(&mut self, vertex: R, index: usize) {
+		unsafe {
+			let start = vertex.to_usize().unwrap_unchecked() * (self.max_degree+1);
+			let n_neighbors = self.data.get_unchecked(start).to_usize().unwrap_unchecked();
+			assert!(n_neighbors > 0);
+			let start = start+1;
+			let end = start+n_neighbors;
+			self.data.swap(start+index, end-1);
+			*self.data.get_unchecked_mut(start-1) -= R::one();
+		}
+		self.n_edges -= 1;
+	}
+	#[inline(always)]
+	fn as_viewable_adj_graph(&self) -> Option<&impl ViewableAdjGraph<R>> {
+		Some(self)
+	}
+}
+impl<R: UnsignedInteger> ViewableAdjGraph<R> for FatDirGraph<R> {
+	#[inline(always)]
+	fn view_neighbors(&self, vertex: R) -> &[R] {
+		unsafe {
+			let start = vertex.to_usize().unwrap_unchecked() * (self.max_degree+1);
+			let n_neighbors = self.data.get_unchecked(start).to_usize().unwrap_unchecked();
+			let start = start+1;
+			let end = start+n_neighbors;
+			self.data.get_unchecked(start..end)
+		}
+	}
+	#[inline(always)]
+	fn view_neighbors_mut(&mut self, vertex: R) -> &mut [R] {
+		unsafe {
+			let start = vertex.to_usize().unwrap_unchecked() * (self.max_degree+1);
+			let n_neighbors = self.data.get_unchecked(start).to_usize().unwrap_unchecked();
+			let start = start+1;
+			let end = start+n_neighbors;
+			self.data.get_unchecked_mut(start..end)
+		}
+	}
+}

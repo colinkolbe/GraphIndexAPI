@@ -1,7 +1,7 @@
 use ndarray_linalg::{Lapack, Scalar};
 use std::iter::{Sum, Product};
 use std::hash::Hash;
-use std::ops::AddAssign;
+use std::ops::{AddAssign, SubAssign};
 use hdf5::H5Type;
 use num::{NumCast, FromPrimitive, ToPrimitive, Zero, One};
 use paste::paste;
@@ -100,9 +100,9 @@ pub mod python {
 trait_combiner!(Static: 'static);
 trait_combiner!(Sync: (std::marker::Send)+(std::marker::Sync));
 #[cfg(feature="python")]
-trait_combiner!(Number: (python::NumpyEquivalent)+Bounded+H5Type+NumCast+FromPrimitive+ToPrimitive+Zero+One+Sum+Product+AddAssign+Copy+Clone+Debug);
+trait_combiner!(Number: (python::NumpyEquivalent)+Bounded+H5Type+NumCast+FromPrimitive+ToPrimitive+Zero+One+Sum+Product+SubAssign+AddAssign+Copy+Clone+Debug);
 #[cfg(not(feature="python"))]
-trait_combiner!(Number: Bounded+H5Type+NumCast+FromPrimitive+ToPrimitive+Zero+One+Sum+Product+AddAssign+Copy+Clone+Debug);
+trait_combiner!(Number: Bounded+H5Type+NumCast+FromPrimitive+ToPrimitive+Zero+One+Sum+Product+SubAssign+AddAssign+Copy+Clone+Debug);
 
 macro_rules! make_num_variants {
 	($($baseType:ident),*) => {

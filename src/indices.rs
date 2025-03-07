@@ -658,9 +658,9 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 	#[inline(always)]
 	fn get_layer(&self, layer: usize) -> Result<&impl Graph<R>, NoSuchLayerError> { if layer==0 {Ok(&self.graphs[layer])} else {Err(NoSuchLayerError)} }
 	#[inline(always)]
-	fn get_global_layer_ids(&self, layer: usize) -> Option<&Vec<R>> { if layer>0 && layer<self.graphs.len() {Some(&self.global_layer_ids[layer-1])} else {None} }
+	fn get_global_layer_ids(&self, layer: usize) -> Option<&Vec<R>> { if layer>0 && layer<=self.global_layer_ids.len() {Some(&self.global_layer_ids[layer-1])} else {None} }
 	#[inline(always)]
-	fn get_local_layer_ids(&self, layer: usize) -> Option<&Vec<R>> { if layer>0 && layer<self.graphs.len() {Some(&self.local_layer_ids[layer-1])} else {None} }
+	fn get_local_layer_ids(&self, layer: usize) -> Option<&Vec<R>> { if layer>0 && layer<=self.local_layer_ids.len() {Some(&self.local_layer_ids[layer-1])} else {None} }
 	#[inline(always)]
 	fn greedy_search<D: Data<Elem=F>>(&self, q: &ArrayBase<D,Ix1>, k_neighbors: usize, max_heap_size: usize, cache: &mut Self::SearchCache) -> (Array1<R>, Array1<F>) {
 		self._init_cache(cache, q, if self.graphs.len() == 1 {max_heap_size} else {self.higher_level_max_heap_size}, max_heap_size);
@@ -735,8 +735,6 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 		}
 	}
 }
-
-
 
 pub struct GreedyCappedLayeredGraphIndex<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>, Mat: MatrixDataSource<F>, G: Graph<R>> {
 	_phantom: std::marker::PhantomData<(R,F)>,
@@ -867,9 +865,9 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 	#[inline(always)]
 	fn get_layer(&self, layer: usize) -> Result<&impl Graph<R>, NoSuchLayerError> { if layer==0 {Ok(&self.graphs[layer])} else {Err(NoSuchLayerError)} }
 	#[inline(always)]
-	fn get_global_layer_ids(&self, layer: usize) -> Option<&Vec<R>> { if layer>0 && layer<self.graphs.len() {Some(&self.global_layer_ids[layer-1])} else {None} }
+	fn get_global_layer_ids(&self, layer: usize) -> Option<&Vec<R>> { if layer>0 && layer<=self.global_layer_ids.len() {Some(&self.global_layer_ids[layer-1])} else {None} }
 	#[inline(always)]
-	fn get_local_layer_ids(&self, layer: usize) -> Option<&Vec<R>> { if layer>0 && layer<self.graphs.len() {Some(&self.local_layer_ids[layer-1])} else {None} }
+	fn get_local_layer_ids(&self, layer: usize) -> Option<&Vec<R>> { if layer>0 && layer<=self.local_layer_ids.len() {Some(&self.local_layer_ids[layer-1])} else {None} }
 	#[inline(always)]
 	fn greedy_search<D: Data<Elem=F>>(&self, q: &ArrayBase<D,Ix1>, k_neighbors: usize, max_heap_size: usize, cache: &mut Self::SearchCache) -> (Array1<R>, Array1<F>) {
 		self._init_cache(cache, q, if self.graphs.len() == 1 {max_heap_size} else {self.higher_level_max_heap_size}, max_heap_size);
