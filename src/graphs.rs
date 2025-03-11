@@ -114,9 +114,10 @@ pub trait Graph<R: UnsignedInteger> {
 		ret
 	}
 	fn as_fat_dir_graph(&self, id_remap: Option<Vec<R>>, n_vertices_override: Option<usize>, max_degree_override: Option<usize>) -> FatDirGraph<R> {
-		let max_degree = max_degree_override.unwrap_or((0..self.n_vertices()).map(|i| unsafe{R::from_usize(i).unwrap_unchecked()}).map(|i| self.degree(i)).max().unwrap());
+		if id_remap.is_some() { assert!(self.n_vertices() == id_remap.as_ref().unwrap().len()); }
 		let n_vertices = n_vertices_override.unwrap_or(self.n_vertices());
-		let mut data = Vec::with_capacity(self.n_vertices()*(max_degree+1));
+		let max_degree = max_degree_override.unwrap_or((0..self.n_vertices()).map(|i| unsafe{R::from_usize(i).unwrap_unchecked()}).map(|i| self.degree(i)).max().unwrap());
+		let mut data = Vec::with_capacity(n_vertices*(max_degree+1));
 		let mut n_edges = 0;
 		unsafe{data.set_len(n_vertices*(max_degree+1));}
 		(0..n_vertices).for_each(|i| data[i*(max_degree+1)] = R::zero());
@@ -804,6 +805,7 @@ impl<R: UnsignedInteger> Graph<R> for FatDirGraph<R> {
 		let curr_len = self.data.len();
 		unsafe{self.data.set_len(curr_len+self.max_degree+1);}
 		self.data[curr_len] = R::zero();
+		self.n_vertices += 1;
 	}
 	#[inline(always)]
 	fn add_node_with_capacity(&mut self, capacity: usize) {
@@ -816,9 +818,9 @@ impl<R: UnsignedInteger> Graph<R> for FatDirGraph<R> {
 			let start = vertex1.to_usize().unwrap_unchecked() * (self.max_degree+1);
 			let n_neighbors = self.data.get_unchecked(start).to_usize().unwrap_unchecked();
 			assert!(n_neighbors < self.max_degree);
-			let start = start+1;
-			let end = start+n_neighbors;
+			let end = start+1+n_neighbors;
 			*self.data.get_unchecked_mut(end) = vertex2;
+			*self.data.get_unchecked_mut(start) += R::one();
 		}
 		self.n_edges += 1;
 	}
