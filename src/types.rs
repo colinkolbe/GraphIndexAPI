@@ -71,6 +71,240 @@ macro_rules! trait_combiner {
 pub use trait_combiner;
 
 
+pub trait VFMASqEuc<const LANES: usize>: std::ops::Sub<Output=Self>+std::ops::Mul<Output=Self>+std::ops::AddAssign+std::iter::Sum+Clone+Copy+num::Zero {
+	#[inline(always)]
+	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self {
+		debug_assert!(LANES.count_ones() == 1); // must be power of two; compile time assertion
+		debug_assert!(v1.len() == d && v2.len() == d); // bounds check
+		let sd = d & !(LANES - 1);
+		let mut vsum = [Self::zero(); LANES];
+		for i in (0..sd).step_by(LANES) {
+			let (vv, cc) = (&v1[i..(i + LANES)], &v2[i..(i + LANES)]);
+			for j in 0..LANES {
+				unsafe {
+					let x = *vv.get_unchecked(j) - *cc.get_unchecked(j);
+					// emulated
+					// *vsum.get_unchecked_mut(j) = x.mul_add(x, *vsum.get_unchecked(j));
+					// FMA
+					*vsum.get_unchecked_mut(j) += x * x;
+				}
+			}
+		}
+		let mut sum = vsum.into_iter().sum::<Self>();
+		if d > sd {
+			sum += (sd..d)
+			.map(|i| unsafe { *v1.get_unchecked(i) - *v2.get_unchecked(i) })
+			.map(|x| x * x)
+			.sum();
+		}
+		sum
+	}
+}
+impl VFMASqEuc<2> for f32 {
+	#[inline(always)]
+	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self { <Self as VFMASqEuc<4>>::sq_euc(v1, v2, d) }
+}
+impl VFMASqEuc<4> for f32 {
+	#[inline(always)]
+	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self {
+		debug_assert!(v1.len() == d && v2.len() == d); // bounds check
+		const LANES: usize = 4;
+		unsafe {
+			use std::arch::x86_64::*;
+			let sd = d & !(LANES - 1);
+			let mut vsum = _mm_setzero_ps();
+			for i in (0..sd).step_by(LANES) {
+				let v1 = _mm_loadu_ps(v1.get_unchecked(i) as *const Self);
+				let v2 = _mm_loadu_ps(v2.get_unchecked(i) as *const Self);
+				let diff = _mm_sub_ps(v1, v2);
+				vsum = _mm_fmadd_ps(diff, diff, vsum);
+			}
+			let sum = _mm_hadd_ps(vsum, vsum);
+			let sum = _mm_hadd_ps(sum, sum);
+			let mut sum = _mm_cvtss_f32(sum);
+			if d > sd {
+				sum += (sd..d)
+				.map(|i| *v1.get_unchecked(i) - *v2.get_unchecked(i))
+				.map(|x| x * x)
+				.sum::<Self>();
+			}
+			sum
+		}
+	}
+}
+impl VFMASqEuc<8> for f32 {
+	#[inline(always)]
+	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self {
+		debug_assert!(v1.len() == d && v2.len() == d); // bounds check
+		const LANES: usize = 8;
+		unsafe {
+			use std::arch::x86_64::*;
+			let sd = d & !(LANES - 1);
+			let mut vsum = _mm256_setzero_ps();
+			for i in (0..sd).step_by(LANES) {
+				let v1 = _mm256_loadu_ps(v1.get_unchecked(i) as *const Self);
+				let v2 = _mm256_loadu_ps(v2.get_unchecked(i) as *const Self);
+				let diff = _mm256_sub_ps(v1, v2);
+				vsum = _mm256_fmadd_ps(diff, diff, vsum);
+			}
+			let sum = _mm256_hadd_ps(vsum, vsum);
+			let sum = _mm256_hadd_ps(sum, sum);
+			let sum_low = _mm256_castps256_ps128(sum);
+			let sum_high = _mm256_extractf128_ps(sum, 1);
+			let final_sum = _mm_add_ps(sum_low, sum_high);
+			let mut sum = _mm_cvtss_f32(final_sum);
+			if d > sd {
+				sum += (sd..d)
+				.map(|i| *v1.get_unchecked(i) - *v2.get_unchecked(i))
+				.map(|x| x * x)
+				.sum::<Self>();
+			}
+			sum
+		}
+	}
+}
+impl VFMASqEuc<16> for f32 {
+	#[cfg(not(feature="nightly-features"))]
+	#[inline(always)]
+	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self { <Self as VFMASqEuc<8>>::sq_euc(v1, v2, d) }
+	#[cfg(feature="nightly-features")]
+	#[inline(always)]
+	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self {
+		debug_assert!(v1.len() == d && v2.len() == d); // bounds check
+		const LANES: usize = 16;
+		unsafe {
+			use std::arch::x86_64::*;
+			let sd = d & !(LANES - 1);
+			let mut vsum = _mm256_setzero_ps();
+			for i in (0..sd).step_by(LANES) {
+				let v1 = _mm256_loadu_ps(v1.get_unchecked(i) as *const Self);
+				let v2 = _mm256_loadu_ps(v2.get_unchecked(i) as *const Self);
+				let diff = _mm256_sub_ps(v1, v2);
+				vsum = _mm256_fmadd_ps(diff, diff, vsum);
+			}
+			let sum = _mm256_hadd_ps(vsum, vsum);
+			let sum = _mm256_hadd_ps(sum, sum);
+			let sum_low = _mm256_castps256_ps128(sum);
+			let sum_high = _mm256_extractf128_ps(sum, 1);
+			let final_sum = _mm_add_ps(sum_low, sum_high);
+			let mut sum = _mm_cvtss_f32(final_sum);
+			if d > sd {
+				sum += (sd..d)
+				.map(|i| *v1.get_unchecked(i) - *v2.get_unchecked(i))
+				.map(|x| x * x)
+				.sum::<Self>();
+			}
+			sum
+		}
+	}
+}
+impl VFMASqEuc<2> for f64 {
+	#[inline(always)]
+	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self {
+		debug_assert!(v1.len() == d && v2.len() == d); // bounds check
+		const LANES: usize = 2;
+		unsafe {
+			use std::arch::x86_64::*;
+			let sd = d & !(LANES - 1);
+			let mut vsum = _mm_setzero_pd();
+			for i in (0..sd).step_by(LANES) {
+				let v1 = _mm_loadu_pd(v1.get_unchecked(i) as *const Self);
+				let v2 = _mm_loadu_pd(v2.get_unchecked(i) as *const Self);
+				let diff = _mm_sub_pd(v1, v2);
+				vsum = _mm_fmadd_pd(diff, diff, vsum);
+			}
+			let sum = _mm_hadd_pd(vsum, vsum);
+			let mut sum = _mm_cvtsd_f64(sum);
+			if d > sd {
+				sum += (sd..d)
+				.map(|i| *v1.get_unchecked(i) - *v2.get_unchecked(i))
+				.map(|x| x * x)
+				.sum::<Self>();
+			}
+			sum
+		}
+	}
+}
+impl VFMASqEuc<4> for f64 {
+	#[inline(always)]
+	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self {
+		debug_assert!(v1.len() == d && v2.len() == d); // bounds check
+		const LANES: usize = 4;
+		unsafe {
+			use std::arch::x86_64::*;
+			let sd = d & !(LANES - 1);
+			let mut vsum = _mm256_setzero_pd();
+			for i in (0..sd).step_by(LANES) {
+				let v1 = _mm256_loadu_pd(v1.get_unchecked(i) as *const Self);
+				let v2 = _mm256_loadu_pd(v2.get_unchecked(i) as *const Self);
+				let diff = _mm256_sub_pd(v1, v2);
+				vsum = _mm256_fmadd_pd(diff, diff, vsum);
+			}
+			let sum = _mm256_hadd_pd(vsum, vsum);
+			let sum_low = _mm256_castpd256_pd128(sum);
+			let sum_high = _mm256_extractf128_pd(sum, 1);
+			let final_sum = _mm_add_pd(sum_low, sum_high);
+			let mut sum = _mm_cvtsd_f64(final_sum);
+			if d > sd {
+				sum += (sd..d)
+				.map(|i| *v1.get_unchecked(i) - *v2.get_unchecked(i))
+				.map(|x| x * x)
+				.sum::<Self>();
+			}
+			sum
+		}
+	}
+}
+impl VFMASqEuc<8> for f64 {
+	#[inline(always)]
+	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self { <Self as VFMASqEuc<4>>::sq_euc(v1, v2, d) }
+}
+impl VFMASqEuc<16> for f64 {
+	#[inline(always)]
+	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self { <Self as VFMASqEuc<4>>::sq_euc(v1, v2, d) }
+}
+#[test]
+fn test_vfma() {
+	use rand::random;
+	let d = 47;
+	let v1_32: Vec<f32> = (0..d).map(|_| random()).collect();
+	let v2_32: Vec<f32> = (0..d).map(|_| random()).collect();
+	// let v1_16: Vec<f64> = v1_32.iter().cloned().map(|v| v as f16).collect();
+	// let v2_16: Vec<f64> = v2_32.iter().cloned().map(|v| v as f16).collect();
+	let v1_64: Vec<f64> = v1_32.iter().cloned().map(|v| v as f64).collect();
+	let v2_64: Vec<f64> = v2_32.iter().cloned().map(|v| v as f64).collect();
+	let true_dist_32: f32 = v1_32.iter().zip(v2_32.iter()).map(|(&a, &b)| a-b).map(|v|v*v).sum();
+	let true_dist_64: f64 = v1_64.iter().zip(v2_64.iter()).map(|(&a, &b)| a-b).map(|v|v*v).sum();
+	// vec![
+	// 	<f16 as VFMASqEuc<2>>::sq_euc,
+	// 	<f16 as VFMASqEuc<4>>::sq_euc,
+	// 	<f16 as VFMASqEuc<8>>::sq_euc,
+	// 	<f16 as VFMASqEuc<16>>::sq_euc,
+	// ].iter().zip(vec![2,4,8,16]).for_each(|(fun, lanes)| {
+	// 	let dist = fun(v1_16.as_slice(), v2_16.as_slice(), v1_16.len()) as f32;
+	// 	assert!((true_dist-dist).abs() < 1e-4, "f16x{:?}: {:?} != {:?}", lanes, true_dist, dist);
+	// });
+	vec![
+		<f32 as VFMASqEuc<2>>::sq_euc,
+		<f32 as VFMASqEuc<4>>::sq_euc,
+		<f32 as VFMASqEuc<8>>::sq_euc,
+		<f32 as VFMASqEuc<16>>::sq_euc,
+	].iter().zip(vec![2,4,8,16]).for_each(|(fun, lanes)| {
+		let dist = fun(v1_32.as_slice(), v2_32.as_slice(), v1_32.len());
+		assert!((true_dist_32-dist).abs() < 1e-5, "f32x{:?}: {:?} != {:?}", lanes, true_dist_32, dist);
+	});
+	vec![
+		<f64 as VFMASqEuc<2>>::sq_euc,
+		<f64 as VFMASqEuc<4>>::sq_euc,
+		<f64 as VFMASqEuc<8>>::sq_euc,
+		<f64 as VFMASqEuc<16>>::sq_euc,
+		].iter().zip(vec![2,4,8,16]).for_each(|(fun, lanes)| {
+		let dist = fun(v1_64.as_slice(), v2_64.as_slice(), v1_64.len());
+		assert!((true_dist_64-dist).abs() < 1e-10, "f64x{:?}: {:?} != {:?}", lanes, true_dist_64, dist);
+	});
+}
+
+
 #[cfg(feature="python")]
 pub mod python {
 	pub trait NumpyEquivalent: numpy::Element {
@@ -119,7 +353,7 @@ macro_rules! make_num_variants {
 trait_combiner!(Integer: Number+(num::Integer));
 trait_combiner!(UnsignedInteger: Hash+Integer+(num::Unsigned));
 trait_combiner!(SignedInteger: Integer+(num::Signed));
-trait_combiner!(Float: Scalar+Lapack+Number+(num::Float));
+trait_combiner!(Float: (VFMASqEuc<2>)+(VFMASqEuc<4>)+(VFMASqEuc<8>)+(VFMASqEuc<16>)+Scalar+Lapack+Number+(num::Float));
 
 make_num_variants!(Number, Integer, UnsignedInteger, SignedInteger, Float);
 
