@@ -4,6 +4,7 @@ pub mod bits;
 pub mod data;
 pub mod float_vectors;
 pub mod heaps;
+pub mod sets;
 pub mod matrices;
 pub mod measures;
 #[cfg(feature="python")]

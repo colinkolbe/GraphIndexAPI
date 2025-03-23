@@ -29,11 +29,14 @@ half = {version="2.2.1", features=["num-traits"]}
 numpy = {version="0.18.0", features=["half"], optional=true}
 pyo3 = {version="0.18.3", features=["auto-initialize", "multiple-pymethods"], optional=true}
 foldhash = "0.1.4"
+generic_singleton = "0.5.0"
+roaring = "0.10.10"
 
 [features]
 default = ["python"]
 count_operations = []
 python = ["numpy", "pyo3"]
+nightly-features = []
 
 [profile.profiling]
 inherits = "release"

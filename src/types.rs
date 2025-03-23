@@ -5,7 +5,7 @@ use std::ops::{AddAssign, SubAssign};
 use hdf5::H5Type;
 use num::{NumCast, FromPrimitive, ToPrimitive, Zero, One};
 use paste::paste;
-use num_traits::Bounded;
+use num_traits::{Bounded, WrappingAdd};
 use std::fmt::Debug;
 
 #[macro_export]
@@ -329,6 +329,12 @@ pub mod python {
 		(u8, "uint8"), (u16, "uint16"),	(u32, "uint32"), (u64, "uint64"),
 		(i8, "int8"), (i16, "int16"),	(i32, "int32"), (i64, "int64")
 	);
+	#[cfg(target_pointer_width = "16")]
+	make_numpy_equivalent!((usize, "uint16"), (isize, "int16"));
+	#[cfg(target_pointer_width = "32")]
+	make_numpy_equivalent!((usize, "uint32"), (isize, "int32"));
+	#[cfg(target_pointer_width = "64")]
+	make_numpy_equivalent!((usize, "uint64"), (isize, "int64"));
 }
 
 trait_combiner!(Static: 'static);
@@ -351,7 +357,7 @@ macro_rules! make_num_variants {
 }
 
 trait_combiner!(Integer: Number+(num::Integer));
-trait_combiner!(UnsignedInteger: Hash+Integer+(num::Unsigned));
+trait_combiner!(UnsignedInteger: Hash+Integer+(num::Unsigned)+WrappingAdd);
 trait_combiner!(SignedInteger: Integer+(num::Signed));
 trait_combiner!(Float: (VFMASqEuc<2>)+(VFMASqEuc<4>)+(VFMASqEuc<8>)+(VFMASqEuc<16>)+Scalar+Lapack+Number+(num::Float));
 

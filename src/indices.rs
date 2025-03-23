@@ -83,12 +83,15 @@ pub trait SearchCache<R: SyncUnsignedInteger, F: SyncFloat> {
 pub struct DefaultSearchCache<R: SyncUnsignedInteger, F: SyncFloat> {
 	pub heap: MaxHeap<F,R>,
 	pub visited_set: HashSet<R>,
+	// pub visited_set: crate::sets::BitSet<R>,
 	pub frontier: MinHeap<F,R>,
 }
+use crate::sets::HashSetLike;
 impl<R: SyncUnsignedInteger, F: SyncFloat> DefaultSearchCache<R,F> {
 	#[inline(always)]
 	pub fn new(max_heap_size: usize) -> Self {
-		let mut visited_set = HashSet::default();
+		let mut visited_set = <HashSet<R> as HashSetLike<R>>::new(1_000_000);
+		// let mut visited_set = <crate::sets::BitSet<R> as HashSetLike<R>>::new(1_000_000);
 		visited_set.reserve(max_heap_size);
 		Self{
 			heap: MaxHeap::with_capacity(max_heap_size),
@@ -371,7 +374,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 			if d > heap.peek().unwrap().0 { break; }
 			// if visited_set.contains(&v) { continue; }
 			graph.foreach_neighbor(v, |&i| {
-				if !visited_set.contains(&i) {
+				if visited_set.insert(i) {
 					let neighbor_dist = self.half_indexed_distance(i, q);
 					if heap.size() < max_heap_size {
 						heap.push(neighbor_dist, i);
@@ -380,7 +383,6 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 						heap.push(neighbor_dist, i);
 					}
 					frontier.push(neighbor_dist, i);
-					visited_set.insert(i);
 				}
 			});
 		}
@@ -511,7 +513,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 		while let Some((d, v)) = frontier.pop::<true>() {
 			if d > heap.peek().unwrap().0 { break; }
 			graph.foreach_neighbor(v, |&i| {
-				if !visited_set.contains(&i) {
+				if visited_set.insert(i) {
 					let neighbor_dist = self.half_indexed_distance(i, q);
 					if heap.size() < max_heap_size {
 						heap.push(neighbor_dist, i);
@@ -524,7 +526,6 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 					} else {
 						frontier.push_pop::<false>(neighbor_dist, i);
 					}
-					visited_set.insert(i);
 				}
 			});
 		}
@@ -699,7 +700,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 				while let Some((d, v)) = frontier.pop() {
 					if d > heap.peek().unwrap_unchecked().0 { break; }
 					graph.foreach_neighbor(v, |&i| {
-						if !visited_set.contains(&i) {
+						if visited_set.insert(i) {
 							let neighbor_dist = self.half_indexed_distance(i, q);
 							if heap.size() < max_heap_size {
 								heap.push(neighbor_dist, i);
@@ -708,7 +709,6 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 								heap.push(neighbor_dist, i);
 							}
 							frontier.push(neighbor_dist, i);
-							visited_set.insert(i);
 						}
 					});
 				}
@@ -718,7 +718,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 				while let Some((d, v)) = frontier.pop() {
 					if d > heap.peek().unwrap_unchecked().0 { break; }
 					graph.foreach_neighbor(v, |&i| {
-						if !visited_set.contains(&i) {
+						if visited_set.insert(i) {
 							let neighbor_dist = self.half_indexed_distance(to_global(i), q);
 							if heap.size() < max_heap_size {
 								heap.push(neighbor_dist, i);
@@ -727,7 +727,6 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 								heap.push(neighbor_dist, i);
 							}
 							frontier.push(neighbor_dist, i);
-							visited_set.insert(i);
 						}
 					});
 				}
@@ -906,7 +905,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 				if d > heap.peek().unwrap().0 { break; }
 				// if visited_set.contains(&v) { continue; }
 				graph.foreach_neighbor(v, |&i| {
-					if !visited_set.contains(&i) {
+					if visited_set.insert(i) {
 						let neighbor_dist = self.half_indexed_distance(i, q);
 						if heap.size() < max_heap_size {
 							heap.push(neighbor_dist, i);
@@ -919,7 +918,6 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 						} else {
 							frontier.push_pop::<false>(neighbor_dist, i);
 						}
-						visited_set.insert(i);
 					}
 				});
 			}
@@ -929,7 +927,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 			while let Some((d, v)) = frontier.pop::<true>() {
 				if d > heap.peek().unwrap().0 { break; }
 				graph.foreach_neighbor(v, |&i| {
-					if !visited_set.contains(&i) {
+					if visited_set.insert(i) {
 						let neighbor_dist = self.half_indexed_distance(to_global(i), q);
 						if heap.size() < max_heap_size {
 							heap.push(neighbor_dist, i);
@@ -942,7 +940,6 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 						} else {
 							frontier.push_pop::<false>(neighbor_dist, i);
 						}
-						visited_set.insert(i);
 					}
 				});
 			}
