@@ -931,28 +931,28 @@ pub mod zero_benching {
 		}
 		v
 	}
-	#[inline(always)]
-	pub fn zero_initialized_avx<T: num::Zero + Copy + Sized>(size: usize) -> Vec<T> {
-		let bytesize = std::mem::size_of::<T>();
-		let total_bytes = bytesize * size;
-		let mut v = Vec::with_capacity(size);
-		unsafe{
-			v.set_len(size);
-			use std::arch::x86_64::*;
-			let start = v.get_unchecked_mut(0) as *mut T as *mut u8;
-			let zeros = _mm256_setzero_si256();
-			if start as usize % 32 != 0 {
-				_mm256_storeu_si256(start as *mut __m256i, zeros);
-				_mm256_storeu_si256((start as usize+total_bytes-32) as *mut __m256i, zeros);
-			}
-			let start = ((start as usize+31) & !31) as *mut u8;
-			(0..total_bytes-32).step_by(32).for_each(|offset| {
-				_mm_prefetch((start as usize+offset+32) as *const i8, _MM_HINT_T0);
-				_mm256_store_si256((start as usize+offset) as *mut __m256i, zeros);
-			});
-		}
-		v
-	}
+	// #[inline(always)]
+	// pub fn zero_initialized_avx<T: num::Zero + Copy + Sized>(size: usize) -> Vec<T> {
+	// 	let bytesize = std::mem::size_of::<T>();
+	// 	let total_bytes = bytesize * size;
+	// 	let mut v = Vec::with_capacity(size);
+	// 	unsafe{
+	// 		v.set_len(size);
+	// 		use std::arch::x86_64::*;
+	// 		let start = v.get_unchecked_mut(0) as *mut T as *mut u8;
+	// 		let zeros = _mm256_setzero_si256();
+	// 		if start as usize % 32 != 0 {
+	// 			_mm256_storeu_si256(start as *mut __m256i, zeros);
+	// 			_mm256_storeu_si256((start as usize+total_bytes-32) as *mut __m256i, zeros);
+	// 		}
+	// 		let start = ((start as usize+31) & !31) as *mut u8;
+	// 		(0..total_bytes-32).step_by(32).for_each(|offset| {
+	// 			_mm_prefetch((start as usize+offset+32) as *const i8, _MM_HINT_T0);
+	// 			_mm256_store_si256((start as usize+offset) as *mut __m256i, zeros);
+	// 		});
+	// 	}
+	// 	v
+	// }
 	#[inline(always)]
 	pub fn zero_initialized_fill<T: num::Zero + Copy + Sized>(size: usize) -> Vec<T> {
 		let mut v = Vec::with_capacity(size);
@@ -969,8 +969,8 @@ pub mod zero_benching {
 	pub fn zero_initialized_memset_u16(size: usize) -> Vec<u16> { zero_initialized_memset(size) }
 	#[inline(never)]
 	pub fn zero_initialized_memset_chunked_u16(size: usize) -> Vec<u16> { zero_initialized_memset(size) }
-	#[inline(never)]
-	pub fn zero_initialized_avx_u16(size: usize) -> Vec<u16> { zero_initialized_avx(size) }
+	// #[inline(never)]
+	// pub fn zero_initialized_avx_u16(size: usize) -> Vec<u16> { zero_initialized_avx(size) }
 	#[inline(never)]
 	pub fn zero_initialized_fill_u16(size: usize) -> Vec<u16> { zero_initialized_fill(size) }
 
@@ -1017,17 +1017,17 @@ pub mod zero_benching {
 			_bench_for_type!(callit "Fill init", zero_initialized_fill, $type, $size, $its);
 		};
 	}
-	pub fn _bench_zero_init() {
-		_bench_for_type!(u8, 100_000, 100);
-		_bench_for_type!(u8, 10_000_000, 100);
-		_bench_for_type!(u16, 100_000, 100);
-		_bench_for_type!(u16, 10_000_000, 100);
-		_bench_for_type!(f32, 100_000, 100);
-		_bench_for_type!(f32, 10_000_000, 100);
-	}
+	// pub fn _bench_zero_init() {
+	// 	_bench_for_type!(u8, 100_000, 100);
+	// 	_bench_for_type!(u8, 10_000_000, 100);
+	// 	_bench_for_type!(u16, 100_000, 100);
+	// 	_bench_for_type!(u16, 10_000_000, 100);
+	// 	_bench_for_type!(f32, 100_000, 100);
+	// 	_bench_for_type!(f32, 10_000_000, 100);
+	// }
 
-	#[test]
-	pub fn bench_zero_init() {
-		_bench_zero_init();
-	}
+	// #[test]
+	// pub fn bench_zero_init() {
+	// 	_bench_zero_init();
+	// }
 }

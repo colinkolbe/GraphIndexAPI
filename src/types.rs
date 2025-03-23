@@ -105,6 +105,10 @@ impl VFMASqEuc<2> for f32 {
 	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self { <Self as VFMASqEuc<4>>::sq_euc(v1, v2, d) }
 }
 impl VFMASqEuc<4> for f32 {
+	#[cfg(not(feature="nightly-features"))]
+	#[inline(always)]
+	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self { <Self as VFMASqEuc<2>>::sq_euc(v1, v2, d) }
+	#[cfg(feature="nightly-features")]
 	#[inline(always)]
 	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self {
 		debug_assert!(v1.len() == d && v2.len() == d); // bounds check
@@ -133,6 +137,10 @@ impl VFMASqEuc<4> for f32 {
 	}
 }
 impl VFMASqEuc<8> for f32 {
+	#[cfg(not(feature="nightly-features"))]
+	#[inline(always)]
+	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self { <Self as VFMASqEuc<4>>::sq_euc(v1, v2, d) }
+	#[cfg(feature="nightly-features")]
 	#[inline(always)]
 	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self {
 		debug_assert!(v1.len() == d && v2.len() == d); // bounds check
@@ -199,6 +207,10 @@ impl VFMASqEuc<16> for f32 {
 	}
 }
 impl VFMASqEuc<2> for f64 {
+	#[cfg(not(feature="nightly-features"))]
+	#[inline(always)]
+	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self { <Self as VFMASqEuc<4>>::sq_euc(v1, v2, d) }
+	#[cfg(feature="nightly-features")]
 	#[inline(always)]
 	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self {
 		debug_assert!(v1.len() == d && v2.len() == d); // bounds check
@@ -226,6 +238,10 @@ impl VFMASqEuc<2> for f64 {
 	}
 }
 impl VFMASqEuc<4> for f64 {
+	#[cfg(not(feature="nightly-features"))]
+	#[inline(always)]
+	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self { <Self as VFMASqEuc<2>>::sq_euc(v1, v2, d) }
+	#[cfg(feature="nightly-features")]
 	#[inline(always)]
 	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self {
 		debug_assert!(v1.len() == d && v2.len() == d); // bounds check
