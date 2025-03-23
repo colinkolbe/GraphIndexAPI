@@ -2,7 +2,7 @@ use std::vec::Vec;
 use std::marker::PhantomData;
 use ndarray::{Data, Axis, ArrayBase, Array, Array1, Array2, Ix1, Ix2};
 
-use crate::types::{Float, VFMASqEuc};
+use crate::types::Float;
 
 
 /* General definition of inner products with helper functions
@@ -401,37 +401,37 @@ fn optimized_sq_euc<N: Float, const LANES: usize>(v1: &[N], v2: &[N], d: usize) 
 	sum
 }
 
-#[test]
-fn bench_vfma() {
-	use rand::random;
-	let (n_dists, dim) = (200_000, 784);
-	let a: Vec<Vec<f32>> = (0..n_dists).map(|_| (0..dim).map(|_| random()).collect()).collect();
-	let b: Vec<Vec<f32>> = (0..n_dists).map(|_| (0..dim).map(|_| random()).collect()).collect();
-	let start_time = std::time::Instant::now();
-	let dist0: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| simple_sq_euc(x.as_slice(), y.as_slice())).collect();
-	let elapsed = start_time.elapsed();
-	println!("simple_sq_euc: {:?}", elapsed);
-	let start_time = std::time::Instant::now();
-	let dist1: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| optimized_sq_euc::<f32,4>(x.as_slice(), y.as_slice(), dim)).collect();
-	let elapsed = start_time.elapsed();
-	println!("optimized_sq_euc: {:?}", elapsed);
-	dist0.iter().cloned().zip(dist1.into_iter()).for_each(|(a,b)| assert!((a-b).abs() / a.min(b) < 1e-5, "{:?} != {:?}", a, b));
-	let start_time = std::time::Instant::now();
-	let dist2: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| <f32 as VFMASqEuc<4>>::sq_euc(x.as_slice(), y.as_slice(), dim)).collect();
-	let elapsed = start_time.elapsed();
-	println!("VFMASqEuc::sq_euc: {:?}", elapsed);
-	dist0.iter().cloned().zip(dist2.into_iter()).for_each(|(a,b)| assert!((a-b).abs() / a.min(b) < 1e-5, "{:?} != {:?}", a, b));
-	let start_time = std::time::Instant::now();
-	let dist1: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| optimized_sq_euc::<f32,8>(x.as_slice(), y.as_slice(), dim)).collect();
-	let elapsed = start_time.elapsed();
-	println!("optimized_sq_euc: {:?}", elapsed);
-	dist0.iter().cloned().zip(dist1.into_iter()).for_each(|(a,b)| assert!((a-b).abs() / a.min(b) < 1e-5, "{:?} != {:?}", a, b));
-	let start_time = std::time::Instant::now();
-	let dist2: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| <f32 as VFMASqEuc<8>>::sq_euc(x.as_slice(), y.as_slice(), dim)).collect();
-	let elapsed = start_time.elapsed();
-	println!("VFMASqEuc::sq_euc: {:?}", elapsed);
-	dist0.iter().cloned().zip(dist2.into_iter()).for_each(|(a,b)| assert!((a-b).abs() / a.min(b) < 1e-5, "{:?} != {:?}", a, b));
-}
+// #[test]
+// fn bench_vfma() {
+// 	use rand::random;
+// 	let (n_dists, dim) = (200_000, 784);
+// 	let a: Vec<Vec<f32>> = (0..n_dists).map(|_| (0..dim).map(|_| random()).collect()).collect();
+// 	let b: Vec<Vec<f32>> = (0..n_dists).map(|_| (0..dim).map(|_| random()).collect()).collect();
+// 	let start_time = std::time::Instant::now();
+// 	let dist0: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| simple_sq_euc(x.as_slice(), y.as_slice())).collect();
+// 	let elapsed = start_time.elapsed();
+// 	println!("simple_sq_euc: {:?}", elapsed);
+// 	let start_time = std::time::Instant::now();
+// 	let dist1: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| optimized_sq_euc::<f32,4>(x.as_slice(), y.as_slice(), dim)).collect();
+// 	let elapsed = start_time.elapsed();
+// 	println!("optimized_sq_euc: {:?}", elapsed);
+// 	dist0.iter().cloned().zip(dist1.into_iter()).for_each(|(a,b)| assert!((a-b).abs() / a.min(b) < 1e-5, "{:?} != {:?}", a, b));
+// 	let start_time = std::time::Instant::now();
+// 	let dist2: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| <f32 as VFMASqEuc<4>>::sq_euc(x.as_slice(), y.as_slice(), dim)).collect();
+// 	let elapsed = start_time.elapsed();
+// 	println!("VFMASqEuc::sq_euc: {:?}", elapsed);
+// 	dist0.iter().cloned().zip(dist2.into_iter()).for_each(|(a,b)| assert!((a-b).abs() / a.min(b) < 1e-5, "{:?} != {:?}", a, b));
+// 	let start_time = std::time::Instant::now();
+// 	let dist1: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| optimized_sq_euc::<f32,8>(x.as_slice(), y.as_slice(), dim)).collect();
+// 	let elapsed = start_time.elapsed();
+// 	println!("optimized_sq_euc: {:?}", elapsed);
+// 	dist0.iter().cloned().zip(dist1.into_iter()).for_each(|(a,b)| assert!((a-b).abs() / a.min(b) < 1e-5, "{:?} != {:?}", a, b));
+// 	let start_time = std::time::Instant::now();
+// 	let dist2: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| <f32 as VFMASqEuc<8>>::sq_euc(x.as_slice(), y.as_slice(), dim)).collect();
+// 	let elapsed = start_time.elapsed();
+// 	println!("VFMASqEuc::sq_euc: {:?}", elapsed);
+// 	dist0.iter().cloned().zip(dist2.into_iter()).for_each(|(a,b)| assert!((a-b).abs() / a.min(b) < 1e-5, "{:?} != {:?}", a, b));
+// }
 
 
 #[derive(Debug,Clone)]
@@ -446,8 +446,8 @@ impl<N: Float> Distance<N> for SquaredEuclideanDistance<N> {
 		#[cfg(feature="count_operations")]
 		unsafe {DIST_COUNTER += 1;}
 		// simple_sq_euc(obj1, obj2)
-		// optimized_sq_euc::<_,4>(obj1, obj2, obj1.len())
-		<N as VFMASqEuc<8>>::sq_euc(obj1, obj2, obj1.len())
+		optimized_sq_euc::<_,4>(obj1, obj2, obj1.len())
+		// <N as VFMASqEuc<8>>::sq_euc(obj1, obj2, obj1.len())
 	}
 }
 #[derive(Debug,Clone)]
