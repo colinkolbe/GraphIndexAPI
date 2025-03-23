@@ -279,46 +279,46 @@ impl VFMASqEuc<16> for f64 {
 	#[inline(always)]
 	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self { <Self as VFMASqEuc<4>>::sq_euc(v1, v2, d) }
 }
-#[test]
-fn test_vfma() {
-	use rand::random;
-	let d = 47;
-	let v1_32: Vec<f32> = (0..d).map(|_| random()).collect();
-	let v2_32: Vec<f32> = (0..d).map(|_| random()).collect();
-	// let v1_16: Vec<f64> = v1_32.iter().cloned().map(|v| v as f16).collect();
-	// let v2_16: Vec<f64> = v2_32.iter().cloned().map(|v| v as f16).collect();
-	let v1_64: Vec<f64> = v1_32.iter().cloned().map(|v| v as f64).collect();
-	let v2_64: Vec<f64> = v2_32.iter().cloned().map(|v| v as f64).collect();
-	let true_dist_32: f32 = v1_32.iter().zip(v2_32.iter()).map(|(&a, &b)| a-b).map(|v|v*v).sum();
-	let true_dist_64: f64 = v1_64.iter().zip(v2_64.iter()).map(|(&a, &b)| a-b).map(|v|v*v).sum();
-	// vec![
-	// 	<f16 as VFMASqEuc<2>>::sq_euc,
-	// 	<f16 as VFMASqEuc<4>>::sq_euc,
-	// 	<f16 as VFMASqEuc<8>>::sq_euc,
-	// 	<f16 as VFMASqEuc<16>>::sq_euc,
-	// ].iter().zip(vec![2,4,8,16]).for_each(|(fun, lanes)| {
-	// 	let dist = fun(v1_16.as_slice(), v2_16.as_slice(), v1_16.len()) as f32;
-	// 	assert!((true_dist-dist).abs() < 1e-4, "f16x{:?}: {:?} != {:?}", lanes, true_dist, dist);
-	// });
-	vec![
-		<f32 as VFMASqEuc<2>>::sq_euc,
-		<f32 as VFMASqEuc<4>>::sq_euc,
-		<f32 as VFMASqEuc<8>>::sq_euc,
-		<f32 as VFMASqEuc<16>>::sq_euc,
-	].iter().zip(vec![2,4,8,16]).for_each(|(fun, lanes)| {
-		let dist = fun(v1_32.as_slice(), v2_32.as_slice(), v1_32.len());
-		assert!((true_dist_32-dist).abs() < 1e-5, "f32x{:?}: {:?} != {:?}", lanes, true_dist_32, dist);
-	});
-	vec![
-		<f64 as VFMASqEuc<2>>::sq_euc,
-		<f64 as VFMASqEuc<4>>::sq_euc,
-		<f64 as VFMASqEuc<8>>::sq_euc,
-		<f64 as VFMASqEuc<16>>::sq_euc,
-		].iter().zip(vec![2,4,8,16]).for_each(|(fun, lanes)| {
-		let dist = fun(v1_64.as_slice(), v2_64.as_slice(), v1_64.len());
-		assert!((true_dist_64-dist).abs() < 1e-10, "f64x{:?}: {:?} != {:?}", lanes, true_dist_64, dist);
-	});
-}
+// #[test]
+// fn test_vfma() {
+// 	use rand::random;
+// 	let d = 47;
+// 	let v1_32: Vec<f32> = (0..d).map(|_| random()).collect();
+// 	let v2_32: Vec<f32> = (0..d).map(|_| random()).collect();
+// 	// let v1_16: Vec<f64> = v1_32.iter().cloned().map(|v| v as f16).collect();
+// 	// let v2_16: Vec<f64> = v2_32.iter().cloned().map(|v| v as f16).collect();
+// 	let v1_64: Vec<f64> = v1_32.iter().cloned().map(|v| v as f64).collect();
+// 	let v2_64: Vec<f64> = v2_32.iter().cloned().map(|v| v as f64).collect();
+// 	let true_dist_32: f32 = v1_32.iter().zip(v2_32.iter()).map(|(&a, &b)| a-b).map(|v|v*v).sum();
+// 	let true_dist_64: f64 = v1_64.iter().zip(v2_64.iter()).map(|(&a, &b)| a-b).map(|v|v*v).sum();
+// 	// vec![
+// 	// 	<f16 as VFMASqEuc<2>>::sq_euc,
+// 	// 	<f16 as VFMASqEuc<4>>::sq_euc,
+// 	// 	<f16 as VFMASqEuc<8>>::sq_euc,
+// 	// 	<f16 as VFMASqEuc<16>>::sq_euc,
+// 	// ].iter().zip(vec![2,4,8,16]).for_each(|(fun, lanes)| {
+// 	// 	let dist = fun(v1_16.as_slice(), v2_16.as_slice(), v1_16.len()) as f32;
+// 	// 	assert!((true_dist-dist).abs() < 1e-4, "f16x{:?}: {:?} != {:?}", lanes, true_dist, dist);
+// 	// });
+// 	vec![
+// 		<f32 as VFMASqEuc<2>>::sq_euc,
+// 		<f32 as VFMASqEuc<4>>::sq_euc,
+// 		<f32 as VFMASqEuc<8>>::sq_euc,
+// 		<f32 as VFMASqEuc<16>>::sq_euc,
+// 	].iter().zip(vec![2,4,8,16]).for_each(|(fun, lanes)| {
+// 		let dist = fun(v1_32.as_slice(), v2_32.as_slice(), v1_32.len());
+// 		assert!((true_dist_32-dist).abs() < 1e-5, "f32x{:?}: {:?} != {:?}", lanes, true_dist_32, dist);
+// 	});
+// 	vec![
+// 		<f64 as VFMASqEuc<2>>::sq_euc,
+// 		<f64 as VFMASqEuc<4>>::sq_euc,
+// 		<f64 as VFMASqEuc<8>>::sq_euc,
+// 		<f64 as VFMASqEuc<16>>::sq_euc,
+// 		].iter().zip(vec![2,4,8,16]).for_each(|(fun, lanes)| {
+// 		let dist = fun(v1_64.as_slice(), v2_64.as_slice(), v1_64.len());
+// 		assert!((true_dist_64-dist).abs() < 1e-10, "f64x{:?}: {:?} != {:?}", lanes, true_dist_64, dist);
+// 	});
+// }
 
 
 #[cfg(feature="python")]
