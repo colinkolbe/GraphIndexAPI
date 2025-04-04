@@ -1,5 +1,4 @@
 use core::panic;
-use foldhash::HashSet;
 
 use ndarray::{Array1, Array2, ArrayBase, Axis, Data, Ix1, Ix2};
 use rayon::iter::{IntoParallelIterator, ParallelBridge, ParallelIterator};
@@ -10,6 +9,7 @@ use crate::heaps::{DualHeap, MaxHeap, MinHeap};
 use crate::random::random_unique_uint;
 use crate::types::{SyncUnsignedInteger, SyncFloat, trait_combiner};
 use crate::measures::Distance;
+use crate::sets::{HashOrBitset,HashSetLike};
 
 pub trait IndexedDistance<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>>: MatrixDataSource<F> {
 	fn distance<D1: Data<Elem=F>, D2: Data<Elem=F>>(&self, i: &ArrayBase<D1, Ix1>, j: &ArrayBase<D2, Ix1>) -> F;
@@ -82,33 +82,32 @@ pub trait SearchCache<R: SyncUnsignedInteger, F: SyncFloat> {
 }
 pub struct DefaultSearchCache<R: SyncUnsignedInteger, F: SyncFloat> {
 	pub heap: MaxHeap<F,R>,
-	pub visited_set: HashSet<R>,
+	pub visited_sets: Vec<HashOrBitset<R>>,
 	// pub visited_set: crate::sets::BitSet<R>,
 	pub frontier: MinHeap<F,R>,
 }
-use crate::sets::HashSetLike;
 impl<R: SyncUnsignedInteger, F: SyncFloat> DefaultSearchCache<R,F> {
 	#[inline(always)]
-	pub fn new(max_heap_size: usize) -> Self {
-		let mut visited_set = <HashSet<R> as HashSetLike<R>>::new(1_000_000);
+	pub fn new(graph_sizes: Vec<usize>, max_heap_size: usize) -> Self {
+		let visited_sets = graph_sizes.iter().map(|&size| HashOrBitset::new(size)).collect();
 		// let mut visited_set = <crate::sets::BitSet<R> as HashSetLike<R>>::new(1_000_000);
-		visited_set.reserve(max_heap_size);
+		// visited_set.reserve(max_heap_size);
 		Self{
 			heap: MaxHeap::with_capacity(max_heap_size),
-			visited_set: visited_set,
+			visited_sets: visited_sets,
 			frontier: MinHeap::with_capacity(max_heap_size),
 		}
 	}
 	#[inline(always)]
 	pub fn reserve(&mut self, max_heap_size: usize) {
 		self.heap.reserve(max_heap_size);
-		self.visited_set.reserve(max_heap_size);
+		// self.visited_set.reserve(max_heap_size);
 		self.frontier.reserve(max_heap_size);
 	}
 	#[inline(always)]
 	pub fn clear(&mut self) {
 		self.heap.clear();
-		self.visited_set.clear();
+		self.visited_sets.iter_mut().for_each(|set| set.clear());
 		self.frontier.clear();
 	}
 }
@@ -134,30 +133,30 @@ impl<R: SyncUnsignedInteger, F: SyncFloat> SearchCache<R,F> for DefaultSearchCac
 }
 pub struct DefaultCappedSearchCache<R: SyncUnsignedInteger, F: SyncFloat> {
 	pub heap: MaxHeap<F,R>,
-	pub visited_set: HashSet<R>,
+	pub visited_sets: Vec<HashOrBitset<R>>,
 	pub frontier: DualHeap<F,R>,
 }
 impl<R: SyncUnsignedInteger, F: SyncFloat> DefaultCappedSearchCache<R,F> {
 	#[inline(always)]
-	pub fn new(max_heap_size: usize, max_frontier_size: usize) -> Self {
-		let mut visited_set = HashSet::default();
-		visited_set.reserve(max_heap_size);
+	pub fn new(graph_sizes: Vec<usize>, max_heap_size: usize, max_frontier_size: usize) -> Self {
+		let visited_sets = graph_sizes.iter().map(|&size| HashOrBitset::new(size)).collect();
+		// visited_set.reserve(max_heap_size);
 		Self{
 			heap: MaxHeap::with_capacity(max_heap_size),
-			visited_set: visited_set,
+			visited_sets: visited_sets,
 			frontier: DualHeap::with_capacity(max_frontier_size),
 		}
 	}
 	#[inline(always)]
 	pub fn reserve(&mut self, max_heap_size: usize, max_frontier_size: usize) {
 		self.heap.reserve(max_heap_size);
-		self.visited_set.reserve(max_heap_size);
+		// self.visited_set.reserve(max_heap_size);
 		self.frontier.reserve(max_frontier_size);
 	}
 	#[inline(always)]
 	pub fn clear(&mut self) {
 		self.heap.clear();
-		self.visited_set.clear();
+		self.visited_sets.iter_mut().for_each(|set| set.clear());
 		self.frontier.clear();
 	}
 }
@@ -331,7 +330,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 	type SearchCache = DefaultSearchCache<R,F>;
 	#[inline(always)]
 	fn _new_search_cache(&self, max_heap_size: usize) -> Self::SearchCache {
-		DefaultSearchCache::new(max_heap_size)
+		DefaultSearchCache::new(vec![self.graph.n_vertices()], max_heap_size)
 	}
 	#[inline(always)]
 	fn _init_cache<D: Data<Elem=F>>(&self, cache: &mut Self::SearchCache, q: &ArrayBase<D,Ix1>, k_neighbors: usize, max_heap_size: usize) {
@@ -359,7 +358,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 	#[inline(always)]
 	fn get_local_layer_ids(&self, _layer: usize) -> Option<&Vec<R>> { None }
 	fn greedy_search_layer_with_cache<D: Data<Elem=F>>(&self, q: &ArrayBase<D,Ix1>, cache: &mut Self::SearchCache, max_heap_size: usize, _layer: usize) {
-		let visited_set = &mut cache.visited_set;
+		let visited_set = unsafe{cache.visited_sets.get_unchecked_mut(0)};
 		visited_set.clear();
 		let frontier = &mut cache.frontier;
 		frontier.clear();
@@ -467,7 +466,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 	type SearchCache = DefaultCappedSearchCache<R,F>;
 	#[inline(always)]
 	fn _new_search_cache(&self, max_heap_size: usize) -> Self::SearchCache {
-		DefaultCappedSearchCache::new(max_heap_size, self.max_frontier_size)
+		DefaultCappedSearchCache::new(vec![self.graph.n_vertices()], max_heap_size, self.max_frontier_size)
 	}
 	#[inline(always)]
 	fn _init_cache<D: Data<Elem=F>>(&self, cache: &mut Self::SearchCache, q: &ArrayBase<D,Ix1>, k_neighbors: usize, max_heap_size: usize) {
@@ -495,7 +494,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 	#[inline(always)]
 	fn get_local_layer_ids(&self, _layer: usize) -> Option<&Vec<R>> { None }
 	fn greedy_search_layer_with_cache<D: Data<Elem=F>>(&self, q: &ArrayBase<D,Ix1>, cache: &mut Self::SearchCache, max_heap_size: usize, _layer: usize) {
-		let visited_set = &mut cache.visited_set;
+		let visited_set = unsafe{cache.visited_sets.get_unchecked_mut(0)};
 		visited_set.clear();
 		let frontier = &mut cache.frontier;
 		frontier.clear();
@@ -618,7 +617,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 	type SearchCache = DefaultSearchCache<R,F>;
 	#[inline(always)]
 	fn _new_search_cache(&self, max_heap_size: usize) -> Self::SearchCache {
-		DefaultSearchCache::new(max_heap_size)
+		DefaultSearchCache::new(self.graphs.iter().map(|g| g.n_vertices()).collect(), max_heap_size)
 	}
 	#[inline(always)]
 	fn _init_cache<D: Data<Elem=F>>(&self, cache: &mut Self::SearchCache, q: &ArrayBase<D,Ix1>, k_neighbors: usize, max_heap_size: usize) {
@@ -683,7 +682,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 		}
 	}
 	fn greedy_search_layer_with_cache<D: Data<Elem=F>>(&self, q: &ArrayBase<D,Ix1>, cache: &mut Self::SearchCache, max_heap_size: usize, layer: usize) {
-		let visited_set = &mut cache.visited_set;
+		let visited_set = unsafe{cache.visited_sets.get_unchecked_mut(layer)};
 		visited_set.clear();
 		let frontier = &mut cache.frontier;
 		frontier.clear();
@@ -823,7 +822,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 	type SearchCache = DefaultCappedSearchCache<R,F>;
 	#[inline(always)]
 	fn _new_search_cache(&self, max_heap_size: usize) -> Self::SearchCache {
-		DefaultCappedSearchCache::new(max_heap_size, self.max_frontier_size)
+		DefaultCappedSearchCache::new(self.graphs.iter().map(|g| g.n_vertices()).collect(), max_heap_size, self.max_frontier_size)
 	}
 	#[inline(always)]
 	fn _init_cache<D: Data<Elem=F>>(&self, cache: &mut Self::SearchCache, q: &ArrayBase<D,Ix1>, k_neighbors: usize, max_heap_size: usize) {
@@ -888,7 +887,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 		}
 	}
 	fn greedy_search_layer_with_cache<D: Data<Elem=F>>(&self, q: &ArrayBase<D,Ix1>, cache: &mut Self::SearchCache, max_heap_size: usize, layer: usize) {
-		let visited_set = &mut cache.visited_set;
+		let visited_set = unsafe{cache.visited_sets.get_unchecked_mut(layer)};
 		visited_set.clear();
 		let frontier = &mut cache.frontier;
 		frontier.clear();

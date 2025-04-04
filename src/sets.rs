@@ -882,7 +882,8 @@ fn test_array_sets() {
 	let degree = 50usize;
 	let ef = 100;
 	let n_clears = max_val / n_threads * ((max_val as f64).log2() / (degree as f64).log2()) as usize / 100;
-	let n_inserts = degree * ef;
+	let n_inserts = degree * ef; /* Lowest level typical load */
+	// let n_inserts = degree * 3; /* Higher level typical load */
 
 	let manager_arc = get_manager_arc::<R>(max_val);
 	(0..n_threads+1+n_threads/5).for_each(|_| manager_arc.prepare_clean());
@@ -902,6 +903,77 @@ fn test_array_sets() {
 		ManagedArraySet<T,R>,
 	], n_threads, n_clears, n_inserts, max_val);
 }
+
+
+
+/* Wrapping the used sets in an enum allows to create a vec
+ * over an arbitrary combination of those */
+pub enum HashOrBitset<T: SyncUnsignedInteger+std::hash::Hash> {
+	Hash(foldhash::HashSet<T>),
+	Bit(BitSet<T>),
+}
+impl<T: SyncUnsignedInteger+std::hash::Hash> HashOrBitset<T> {
+	#[inline(always)]
+	pub fn new_bit(capacity: usize) -> Self {
+		HashOrBitset::Bit(<BitSet<T> as HashSetLike<T>>::new(capacity))
+	}
+	#[inline(always)]
+	pub fn new_hash(capacity: usize) -> Self {
+		HashOrBitset::Hash(<foldhash::HashSet<T> as HashSetLike<T>>::new(capacity))
+	}
+}
+impl<T: SyncUnsignedInteger+std::hash::Hash> HashSetLike<T> for HashOrBitset<T> {
+	#[inline(always)]
+	fn new(capacity: usize) -> Self {
+		/* 5M is approximately the empirically dervied threshold
+		 * when hashsets become faster in a HNSW-typical setting */
+		if capacity <= 5_000_000 {
+			HashOrBitset::new_bit(capacity)
+		} else {
+			HashOrBitset::new_hash(capacity)
+		}
+	}
+	#[inline(always)]
+	fn reserve(&mut self, additional: usize) {
+		match self {
+			HashOrBitset::Hash(h) => h.reserve(additional),
+			HashOrBitset::Bit(b) => b.reserve(additional),
+		}
+	}
+	#[inline(always)]
+	fn insert(&mut self, value: T) -> bool {
+		match self {
+			HashOrBitset::Hash(h) => h.insert(value),
+			HashOrBitset::Bit(b) => b.insert(value),
+		}
+	}
+	#[inline(always)]
+	fn contains(&self, value: &T) -> bool {
+		match self {
+			HashOrBitset::Hash(h) => h.contains(value),
+			HashOrBitset::Bit(b) => b.contains(value),
+		}
+	}
+	#[inline(always)]
+	fn clear(&mut self) {
+		match self {
+			HashOrBitset::Hash(h) => h.clear(),
+			HashOrBitset::Bit(b) => b.clear(),
+		}
+	}
+}
+#[test]
+fn test_hash_or_bitset() {
+	let mut vec: Vec<HashOrBitset<usize>> = Vec::new();
+	vec.push(HashOrBitset::new_bit(10));
+	vec.push(HashOrBitset::new_bit(1_000));
+	vec.push(HashOrBitset::new_bit(100_000));
+	vec.push(HashOrBitset::new_hash(10_000_000));
+	std::hint::black_box(&vec);
+}
+
+
+
 
 
 pub mod zero_benching {
@@ -1031,3 +1103,5 @@ pub mod zero_benching {
 		_bench_zero_init();
 	}
 }
+
+

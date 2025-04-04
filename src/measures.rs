@@ -377,12 +377,25 @@ fn simple_sq_euc<N: Float>(obj1: &[N], obj2: &[N]) -> N {
 fn optimized_sq_euc<N: Float, const LANES: usize>(v1: &[N], v2: &[N], d: usize) -> N {
 	debug_assert!(LANES.count_ones() == 1); // must be power of two; compile time assertion
 	debug_assert!(v1.len() == d && v2.len() == d); // bounds check
-	let sd = d & !(LANES - 1);
-	let mut vsum = [N::zero(); LANES];
-	for i in (0..sd).step_by(LANES) {
-		let (vv, cc) = (&v1[i..(i + LANES)], &v2[i..(i + LANES)]);
-		for j in 0..LANES {
-			unsafe {
+	unsafe {
+		#[cfg(target_arch = "x86_64")]
+		{
+			use std::arch::x86_64::*;
+			_mm_prefetch(v1.get_unchecked(0) as *const N as *const i8, _MM_HINT_T0);
+			_mm_prefetch(v2.get_unchecked(0) as *const N as *const i8, _MM_HINT_T0);
+		}
+		let sd = d & !(LANES - 1);
+		let mut vsum = [N::zero(); LANES];
+		for i in (0..sd).step_by(LANES) {
+			let (vv, cc) = (&v1[i..(i + LANES)], &v2[i..(i + LANES)]);
+			let next_i = i+LANES;
+			#[cfg(target_arch = "x86_64")]
+			{
+				use std::arch::x86_64::*;
+				_mm_prefetch(v1.get_unchecked(next_i) as *const N as *const i8, _MM_HINT_T0);
+				_mm_prefetch(v2.get_unchecked(next_i) as *const N as *const i8, _MM_HINT_T0);
+			}
+			for j in 0..LANES {
 				let x = *vv.get_unchecked(j) - *cc.get_unchecked(j);
 				// emulated
 				// *vsum.get_unchecked_mut(j) = x.mul_add(x, *vsum.get_unchecked(j));
@@ -390,15 +403,15 @@ fn optimized_sq_euc<N: Float, const LANES: usize>(v1: &[N], v2: &[N], d: usize) 
 				*vsum.get_unchecked_mut(j) += x * x;
 			}
 		}
+		let mut sum = vsum.into_iter().sum::<N>();
+		if d > sd {
+			sum += (sd..d)
+			.map(|i| unsafe { *v1.get_unchecked(i) - *v2.get_unchecked(i) })
+			.map(|x| x * x)
+			.sum();
+		}
+		sum
 	}
-	let mut sum = vsum.into_iter().sum::<N>();
-	if d > sd {
-		sum += (sd..d)
-		.map(|i| unsafe { *v1.get_unchecked(i) - *v2.get_unchecked(i) })
-		.map(|x| x * x)
-		.sum();
-	}
-	sum
 }
 
 #[test]
@@ -446,8 +459,10 @@ impl<N: Float> Distance<N> for SquaredEuclideanDistance<N> {
 		#[cfg(feature="count_operations")]
 		unsafe {DIST_COUNTER += 1;}
 		// simple_sq_euc(obj1, obj2)
-		// optimized_sq_euc::<_,4>(obj1, obj2, obj1.len())
-		<N as VFMASqEuc<8>>::sq_euc(obj1, obj2, obj1.len())
+		#[cfg(not(target_arch = "x86_64"))]
+		return optimized_sq_euc::<_,4>(obj1, obj2, obj1.len());
+		#[cfg(target_arch = "x86_64")]
+		return <N as VFMASqEuc<8>>::sq_euc(obj1, obj2, obj1.len());
 	}
 }
 #[derive(Debug,Clone)]
