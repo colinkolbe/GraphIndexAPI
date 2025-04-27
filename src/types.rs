@@ -14,7 +14,7 @@ macro_rules! param_struct {
 	(
 		$name:ident /* Name of the parameter struct */
 		$([$($derived_type:ty),*])? /* Derived types */
-		$(<$($generic_names:ident : $generic_types:path)*>)? /* Generics */
+		$(<$($generic_names:ident : $generic_types:path),*>)? /* Generics */
 		{$($field_name:ident: $field_type:ty = $field_value:expr),*$(,)?} /* Fields */
 	) => { paste::paste! {
 		#[derive($($($derived_type,)*)?)]
