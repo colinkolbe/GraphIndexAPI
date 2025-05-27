@@ -141,7 +141,11 @@ pub trait Graph<R: UnsignedInteger> {
 	#[inline(always)]
 	fn as_viewable_adj_graph(&self) -> Option<&impl ViewableAdjGraph<R>> { None::<&DirLoLGraph<R>> }
 	#[inline(always)]
+	fn as_viewable_adj_graph_mut(&mut self) -> Option<&mut impl ViewableAdjGraph<R>> { None::<&mut DirLoLGraph<R>> }
+	#[inline(always)]
 	fn as_vec_viewable_adj_graph(&self) -> Option<&impl VecViewableAdjGraph<R>> { None::<&DirLoLGraph<R>> }
+	#[inline(always)]
+	fn as_vec_viewable_adj_graph_mut(&mut self) -> Option<&mut impl VecViewableAdjGraph<R>> { None::<&mut DirLoLGraph<R>> }
 }
 pub trait WeightedGraph<R: UnsignedInteger, F: Float>: Graph<R> {
 	fn edge_weight(&self, vertex1: R, vertex2: R) -> F;
@@ -331,7 +335,15 @@ impl<R: UnsignedInteger> Graph<R> for DirLoLGraph<R> {
 		Some(self)
 	}
 	#[inline(always)]
+	fn as_viewable_adj_graph_mut(&mut self) -> Option<&mut impl ViewableAdjGraph<R>> {
+		Some(self)
+	}
+	#[inline(always)]
 	fn as_vec_viewable_adj_graph(&self) -> Option<&impl VecViewableAdjGraph<R>> {
+		Some(self)
+	}
+	#[inline(always)]
+	fn as_vec_viewable_adj_graph_mut(&mut self) -> Option<&mut impl VecViewableAdjGraph<R>> {
 		Some(self)
 	}
 }
@@ -445,7 +457,15 @@ impl<R: UnsignedInteger> Graph<R> for UndirLoLGraph<R> {
 		Some(self)
 	}
 	#[inline(always)]
+	fn as_viewable_adj_graph_mut(&mut self) -> Option<&mut impl ViewableAdjGraph<R>> {
+		Some(self)
+	}
+	#[inline(always)]
 	fn as_vec_viewable_adj_graph(&self) -> Option<&impl VecViewableAdjGraph<R>> {
+		Some(self)
+	}
+	#[inline(always)]
+	fn as_vec_viewable_adj_graph_mut(&mut self) -> Option<&mut impl VecViewableAdjGraph<R>> {
 		Some(self)
 	}
 }
@@ -839,6 +859,10 @@ impl<R: UnsignedInteger> Graph<R> for FatDirGraph<R> {
 	}
 	#[inline(always)]
 	fn as_viewable_adj_graph(&self) -> Option<&impl ViewableAdjGraph<R>> {
+		Some(self)
+	}
+	#[inline(always)]
+	fn as_viewable_adj_graph_mut(&mut self) -> Option<&mut impl ViewableAdjGraph<R>> {
 		Some(self)
 	}
 }

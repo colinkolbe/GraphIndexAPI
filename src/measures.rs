@@ -301,7 +301,7 @@ impl<N: Float> InnerProduct<N> for SigmoidKernel<N> {
 	(&self, obj1: &ArrayBase<D1, Ix1>, obj2: &ArrayBase<D2, Ix1>) -> N {
 		self.dist_slice(&obj1.as_slice().unwrap(), &obj2.as_slice().unwrap())
 	}
-	fn dist_slice(&self, obj1: &&[N], obj2: &&[N]) -> N;
+	fn dist_slice(&self, obj1: &[N], obj2: &[N]) -> N;
 }
 #[derive(Debug,Clone)]
 pub struct InducedInnerProduct<N: Float, D: Distance<N>> {_phantom: PhantomData<N>, dist: D}
@@ -344,7 +344,7 @@ impl<N: Float> CosineDistance<N> {
 }
 impl<N: Float> Distance<N> for CosineDistance<N> {
 	#[inline(always)]
-	fn dist_slice(&self, obj1: &&[N], obj2: &&[N]) -> N {
+	fn dist_slice(&self, obj1: &[N], obj2: &[N]) -> N {
 		#[cfg(feature="count_operations")]
 		unsafe {DIST_COUNTER += 1;}
 		let zero: N = num::Zero::zero();
@@ -455,14 +455,15 @@ impl<N: Float> SquaredEuclideanDistance<N> {
 }
 impl<N: Float> Distance<N> for SquaredEuclideanDistance<N> {
 	#[inline(always)]
-	fn dist_slice(&self, obj1: &&[N], obj2: &&[N]) -> N {
+	fn dist_slice(&self, obj1: &[N], obj2: &[N]) -> N {
+		let d = obj1.len();
 		#[cfg(feature="count_operations")]
 		unsafe {DIST_COUNTER += 1;}
 		// simple_sq_euc(obj1, obj2)
 		#[cfg(not(target_arch = "x86_64"))]
-		return optimized_sq_euc::<_,4>(obj1, obj2, obj1.len());
+		return optimized_sq_euc::<_,4>(obj1, obj2, d);
 		#[cfg(target_arch = "x86_64")]
-		return <N as VFMASqEuc<8>>::sq_euc(obj1, obj2, obj1.len());
+		return <N as VFMASqEuc<8>>::sq_euc(obj1, obj2, d);
 	}
 }
 #[derive(Debug,Clone)]
@@ -473,7 +474,7 @@ impl<N: Float> EuclideanDistance<N> {
 }
 impl<N: Float> Distance<N> for EuclideanDistance<N> {
 	#[inline(always)]
-	fn dist_slice(&self, obj1: &&[N], obj2: &&[N]) -> N { <N as num_traits::Float>::sqrt(self.sq_euc.dist_slice(obj1, obj2)) }
+	fn dist_slice(&self, obj1: &[N], obj2: &[N]) -> N { <N as num_traits::Float>::sqrt(self.sq_euc.dist_slice(obj1, obj2)) }
 }
 
 

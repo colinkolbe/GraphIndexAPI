@@ -117,8 +117,10 @@ impl VFMASqEuc<4> for f32 {
 			let mut vsum = _mm_setzero_ps();
 			for i in (0..sd).step_by(LANES) {
 				let next_i = i+LANES;
-				_mm_prefetch(v1.get_unchecked(next_i) as *const Self as *const i8, _MM_HINT_T0);
-				_mm_prefetch(v2.get_unchecked(next_i) as *const Self as *const i8, _MM_HINT_T0);
+				if next_i < d {
+					_mm_prefetch(v1.get_unchecked(next_i) as *const Self as *const i8, _MM_HINT_T0);
+					_mm_prefetch(v2.get_unchecked(next_i) as *const Self as *const i8, _MM_HINT_T0);
+				}
 				let v1 = _mm_loadu_ps(v1.get_unchecked(i) as *const Self);
 				let v2 = _mm_loadu_ps(v2.get_unchecked(i) as *const Self);
 				let diff = _mm_sub_ps(v1, v2);
@@ -150,8 +152,10 @@ impl VFMASqEuc<8> for f32 {
 			let mut vsum = _mm256_setzero_ps();
 			for i in (0..sd).step_by(LANES) {
 				let next_i = i+LANES;
-				_mm_prefetch(v1.get_unchecked(next_i) as *const Self as *const i8, _MM_HINT_T0);
-				_mm_prefetch(v2.get_unchecked(next_i) as *const Self as *const i8, _MM_HINT_T0);
+				if next_i < d {
+					_mm_prefetch(v1.get_unchecked(next_i) as *const Self as *const i8, _MM_HINT_T0);
+					_mm_prefetch(v2.get_unchecked(next_i) as *const Self as *const i8, _MM_HINT_T0);
+				}
 				let v1 = _mm256_loadu_ps(v1.get_unchecked(i) as *const Self);
 				let v2 = _mm256_loadu_ps(v2.get_unchecked(i) as *const Self);
 				let diff = _mm256_sub_ps(v1, v2);
@@ -221,8 +225,10 @@ impl VFMASqEuc<2> for f64 {
 			let mut vsum = _mm_setzero_pd();
 			for i in (0..sd).step_by(LANES) {
 				let next_i = i+LANES;
-				_mm_prefetch(v1.get_unchecked(next_i) as *const Self as *const i8, _MM_HINT_T0);
-				_mm_prefetch(v2.get_unchecked(next_i) as *const Self as *const i8, _MM_HINT_T0);
+				if next_i < d {
+					_mm_prefetch(v1.get_unchecked(next_i) as *const Self as *const i8, _MM_HINT_T0);
+					_mm_prefetch(v2.get_unchecked(next_i) as *const Self as *const i8, _MM_HINT_T0);
+				}
 				let v1 = _mm_loadu_pd(v1.get_unchecked(i) as *const Self);
 				let v2 = _mm_loadu_pd(v2.get_unchecked(i) as *const Self);
 				let diff = _mm_sub_pd(v1, v2);
@@ -253,8 +259,10 @@ impl VFMASqEuc<4> for f64 {
 			let mut vsum = _mm256_setzero_pd();
 			for i in (0..sd).step_by(LANES) {
 				let next_i = i+LANES;
-				_mm_prefetch(v1.get_unchecked(next_i) as *const Self as *const i8, _MM_HINT_T0);
-				_mm_prefetch(v2.get_unchecked(next_i) as *const Self as *const i8, _MM_HINT_T0);
+				if next_i < d {
+					_mm_prefetch(v1.get_unchecked(next_i) as *const Self as *const i8, _MM_HINT_T0);
+					_mm_prefetch(v2.get_unchecked(next_i) as *const Self as *const i8, _MM_HINT_T0);
+				}
 				let v1 = _mm256_loadu_pd(v1.get_unchecked(i) as *const Self);
 				let v2 = _mm256_loadu_pd(v2.get_unchecked(i) as *const Self);
 				let diff = _mm256_sub_pd(v1, v2);
