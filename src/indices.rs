@@ -625,7 +625,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 		cache.clear();
 		cache.reserve(max_heap_size);
 		let heap = &mut cache.heap;
-		let ids = self.get_global_layer_ids(self.layer_count());
+		let ids = self.get_global_layer_ids(self.layer_count()-1);
 		if self.entry_points.is_none() {
 			if ids.is_some() {
 				let ids = unsafe{ids.unwrap_unchecked()};
@@ -830,7 +830,7 @@ impl<R: SyncUnsignedInteger, F: SyncFloat, Dist: Distance<F>+Sync, Mat: MatrixDa
 		cache.clear();
 		cache.reserve(max_heap_size, self.max_frontier_size);
 		let heap = &mut cache.heap;
-		let ids = self.get_global_layer_ids(self.layer_count());
+		let ids = self.get_global_layer_ids(self.layer_count()-1);
 		if self.entry_points.is_none() {
 			if ids.is_some() {
 				let ids = unsafe{ids.unwrap_unchecked()};
