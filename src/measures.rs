@@ -1,7 +1,7 @@
 use std::vec::Vec;
 use std::marker::PhantomData;
 use ndarray::{Data, Axis, ArrayBase, Array, Array1, Array2, Ix1, Ix2};
-
+#[allow(unused)]
 use crate::types::{Float, VFMASqEuc};
 
 
