@@ -2,7 +2,7 @@ use std::vec::Vec;
 use std::marker::PhantomData;
 use ndarray::{Data, Axis, ArrayBase, Array, Array1, Array2, Ix1, Ix2};
 
-use crate::types::Float;
+use crate::types::{Float, VFMASqEuc};
 
 
 /* General definition of inner products with helper functions
@@ -301,7 +301,7 @@ impl<N: Float> InnerProduct<N> for SigmoidKernel<N> {
 	(&self, obj1: &ArrayBase<D1, Ix1>, obj2: &ArrayBase<D2, Ix1>) -> N {
 		self.dist_slice(&obj1.as_slice().unwrap(), &obj2.as_slice().unwrap())
 	}
-	fn dist_slice(&self, obj1: &&[N], obj2: &&[N]) -> N;
+	fn dist_slice(&self, obj1: &[N], obj2: &[N]) -> N;
 }
 #[derive(Debug,Clone)]
 pub struct InducedInnerProduct<N: Float, D: Distance<N>> {_phantom: PhantomData<N>, dist: D}
@@ -344,7 +344,7 @@ impl<N: Float> CosineDistance<N> {
 }
 impl<N: Float> Distance<N> for CosineDistance<N> {
 	#[inline(always)]
-	fn dist_slice(&self, obj1: &&[N], obj2: &&[N]) -> N {
+	fn dist_slice(&self, obj1: &[N], obj2: &[N]) -> N {
 		#[cfg(feature="count_operations")]
 		unsafe {DIST_COUNTER += 1;}
 		let zero: N = num::Zero::zero();
@@ -377,12 +377,25 @@ fn simple_sq_euc<N: Float>(obj1: &[N], obj2: &[N]) -> N {
 fn optimized_sq_euc<N: Float, const LANES: usize>(v1: &[N], v2: &[N], d: usize) -> N {
 	debug_assert!(LANES.count_ones() == 1); // must be power of two; compile time assertion
 	debug_assert!(v1.len() == d && v2.len() == d); // bounds check
-	let sd = d & !(LANES - 1);
-	let mut vsum = [N::zero(); LANES];
-	for i in (0..sd).step_by(LANES) {
-		let (vv, cc) = (&v1[i..(i + LANES)], &v2[i..(i + LANES)]);
-		for j in 0..LANES {
-			unsafe {
+	unsafe {
+		#[cfg(target_arch = "x86_64")]
+		{
+			use std::arch::x86_64::*;
+			_mm_prefetch(v1.get_unchecked(0) as *const N as *const i8, _MM_HINT_T0);
+			_mm_prefetch(v2.get_unchecked(0) as *const N as *const i8, _MM_HINT_T0);
+		}
+		let sd = d & !(LANES - 1);
+		let mut vsum = [N::zero(); LANES];
+		for i in (0..sd).step_by(LANES) {
+			let (vv, cc) = (&v1[i..(i + LANES)], &v2[i..(i + LANES)]);
+			let next_i = i+LANES;
+			#[cfg(target_arch = "x86_64")]
+			{
+				use std::arch::x86_64::*;
+				_mm_prefetch(v1.get_unchecked(next_i) as *const N as *const i8, _MM_HINT_T0);
+				_mm_prefetch(v2.get_unchecked(next_i) as *const N as *const i8, _MM_HINT_T0);
+			}
+			for j in 0..LANES {
 				let x = *vv.get_unchecked(j) - *cc.get_unchecked(j);
 				// emulated
 				// *vsum.get_unchecked_mut(j) = x.mul_add(x, *vsum.get_unchecked(j));
@@ -390,48 +403,48 @@ fn optimized_sq_euc<N: Float, const LANES: usize>(v1: &[N], v2: &[N], d: usize) 
 				*vsum.get_unchecked_mut(j) += x * x;
 			}
 		}
+		let mut sum = vsum.into_iter().sum::<N>();
+		if d > sd {
+			sum += (sd..d)
+			.map(|i| unsafe { *v1.get_unchecked(i) - *v2.get_unchecked(i) })
+			.map(|x| x * x)
+			.sum();
+		}
+		sum
 	}
-	let mut sum = vsum.into_iter().sum::<N>();
-	if d > sd {
-		sum += (sd..d)
-		.map(|i| unsafe { *v1.get_unchecked(i) - *v2.get_unchecked(i) })
-		.map(|x| x * x)
-		.sum();
-	}
-	sum
 }
 
-// #[test]
-// fn bench_vfma() {
-// 	use rand::random;
-// 	let (n_dists, dim) = (200_000, 784);
-// 	let a: Vec<Vec<f32>> = (0..n_dists).map(|_| (0..dim).map(|_| random()).collect()).collect();
-// 	let b: Vec<Vec<f32>> = (0..n_dists).map(|_| (0..dim).map(|_| random()).collect()).collect();
-// 	let start_time = std::time::Instant::now();
-// 	let dist0: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| simple_sq_euc(x.as_slice(), y.as_slice())).collect();
-// 	let elapsed = start_time.elapsed();
-// 	println!("simple_sq_euc: {:?}", elapsed);
-// 	let start_time = std::time::Instant::now();
-// 	let dist1: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| optimized_sq_euc::<f32,4>(x.as_slice(), y.as_slice(), dim)).collect();
-// 	let elapsed = start_time.elapsed();
-// 	println!("optimized_sq_euc: {:?}", elapsed);
-// 	dist0.iter().cloned().zip(dist1.into_iter()).for_each(|(a,b)| assert!((a-b).abs() / a.min(b) < 1e-5, "{:?} != {:?}", a, b));
-// 	let start_time = std::time::Instant::now();
-// 	let dist2: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| <f32 as VFMASqEuc<4>>::sq_euc(x.as_slice(), y.as_slice(), dim)).collect();
-// 	let elapsed = start_time.elapsed();
-// 	println!("VFMASqEuc::sq_euc: {:?}", elapsed);
-// 	dist0.iter().cloned().zip(dist2.into_iter()).for_each(|(a,b)| assert!((a-b).abs() / a.min(b) < 1e-5, "{:?} != {:?}", a, b));
-// 	let start_time = std::time::Instant::now();
-// 	let dist1: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| optimized_sq_euc::<f32,8>(x.as_slice(), y.as_slice(), dim)).collect();
-// 	let elapsed = start_time.elapsed();
-// 	println!("optimized_sq_euc: {:?}", elapsed);
-// 	dist0.iter().cloned().zip(dist1.into_iter()).for_each(|(a,b)| assert!((a-b).abs() / a.min(b) < 1e-5, "{:?} != {:?}", a, b));
-// 	let start_time = std::time::Instant::now();
-// 	let dist2: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| <f32 as VFMASqEuc<8>>::sq_euc(x.as_slice(), y.as_slice(), dim)).collect();
-// 	let elapsed = start_time.elapsed();
-// 	println!("VFMASqEuc::sq_euc: {:?}", elapsed);
-// 	dist0.iter().cloned().zip(dist2.into_iter()).for_each(|(a,b)| assert!((a-b).abs() / a.min(b) < 1e-5, "{:?} != {:?}", a, b));
-// }
+#[test]
+fn bench_vfma() {
+	use rand::random;
+	let (n_dists, dim) = (200_000, 784);
+	let a: Vec<Vec<f32>> = (0..n_dists).map(|_| (0..dim).map(|_| random()).collect()).collect();
+	let b: Vec<Vec<f32>> = (0..n_dists).map(|_| (0..dim).map(|_| random()).collect()).collect();
+	let start_time = std::time::Instant::now();
+	let dist0: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| simple_sq_euc(x.as_slice(), y.as_slice())).collect();
+	let elapsed = start_time.elapsed();
+	println!("simple_sq_euc: {:?}", elapsed);
+	let start_time = std::time::Instant::now();
+	let dist1: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| optimized_sq_euc::<f32,4>(x.as_slice(), y.as_slice(), dim)).collect();
+	let elapsed = start_time.elapsed();
+	println!("optimized_sq_euc: {:?}", elapsed);
+	dist0.iter().cloned().zip(dist1.into_iter()).for_each(|(a,b)| assert!((a-b).abs() / a.min(b) < 1e-5, "{:?} != {:?}", a, b));
+	let start_time = std::time::Instant::now();
+	let dist2: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| <f32 as VFMASqEuc<4>>::sq_euc(x.as_slice(), y.as_slice(), dim)).collect();
+	let elapsed = start_time.elapsed();
+	println!("VFMASqEuc::sq_euc: {:?}", elapsed);
+	dist0.iter().cloned().zip(dist2.into_iter()).for_each(|(a,b)| assert!((a-b).abs() / a.min(b) < 1e-5, "{:?} != {:?}", a, b));
+	let start_time = std::time::Instant::now();
+	let dist1: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| optimized_sq_euc::<f32,8>(x.as_slice(), y.as_slice(), dim)).collect();
+	let elapsed = start_time.elapsed();
+	println!("optimized_sq_euc: {:?}", elapsed);
+	dist0.iter().cloned().zip(dist1.into_iter()).for_each(|(a,b)| assert!((a-b).abs() / a.min(b) < 1e-5, "{:?} != {:?}", a, b));
+	let start_time = std::time::Instant::now();
+	let dist2: Vec<f32> = a.iter().zip(b.iter()).map(|(x,y)| <f32 as VFMASqEuc<8>>::sq_euc(x.as_slice(), y.as_slice(), dim)).collect();
+	let elapsed = start_time.elapsed();
+	println!("VFMASqEuc::sq_euc: {:?}", elapsed);
+	dist0.iter().cloned().zip(dist2.into_iter()).for_each(|(a,b)| assert!((a-b).abs() / a.min(b) < 1e-5, "{:?} != {:?}", a, b));
+}
 
 
 #[derive(Debug,Clone)]
@@ -442,12 +455,15 @@ impl<N: Float> SquaredEuclideanDistance<N> {
 }
 impl<N: Float> Distance<N> for SquaredEuclideanDistance<N> {
 	#[inline(always)]
-	fn dist_slice(&self, obj1: &&[N], obj2: &&[N]) -> N {
+	fn dist_slice(&self, obj1: &[N], obj2: &[N]) -> N {
+		let d = obj1.len();
 		#[cfg(feature="count_operations")]
 		unsafe {DIST_COUNTER += 1;}
 		// simple_sq_euc(obj1, obj2)
-		optimized_sq_euc::<_,4>(obj1, obj2, obj1.len())
-		// <N as VFMASqEuc<8>>::sq_euc(obj1, obj2, obj1.len())
+		#[cfg(not(target_arch = "x86_64"))]
+		return optimized_sq_euc::<_,4>(obj1, obj2, d);
+		#[cfg(target_arch = "x86_64")]
+		return <N as VFMASqEuc<8>>::sq_euc(obj1, obj2, d);
 	}
 }
 #[derive(Debug,Clone)]
@@ -458,7 +474,7 @@ impl<N: Float> EuclideanDistance<N> {
 }
 impl<N: Float> Distance<N> for EuclideanDistance<N> {
 	#[inline(always)]
-	fn dist_slice(&self, obj1: &&[N], obj2: &&[N]) -> N { <N as num_traits::Float>::sqrt(self.sq_euc.dist_slice(obj1, obj2)) }
+	fn dist_slice(&self, obj1: &[N], obj2: &[N]) -> N { <N as num_traits::Float>::sqrt(self.sq_euc.dist_slice(obj1, obj2)) }
 }
 
 

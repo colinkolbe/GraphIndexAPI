@@ -882,7 +882,8 @@ fn test_array_sets() {
 	let degree = 50usize;
 	let ef = 100;
 	let n_clears = max_val / n_threads * ((max_val as f64).log2() / (degree as f64).log2()) as usize / 100;
-	let n_inserts = degree * ef;
+	let n_inserts = degree * ef; /* Lowest level typical load */
+	// let n_inserts = degree * 3; /* Higher level typical load */
 
 	let manager_arc = get_manager_arc::<R>(max_val);
 	(0..n_threads+1+n_threads/5).for_each(|_| manager_arc.prepare_clean());
@@ -904,6 +905,78 @@ fn test_array_sets() {
 }
 
 
+
+/* Wrapping the used sets in an enum allows to create a vec
+ * over an arbitrary combination of those */
+pub enum HashOrBitset<T: SyncUnsignedInteger+std::hash::Hash> {
+	Hash(foldhash::HashSet<T>),
+	Bit(BitSet<T>),
+}
+impl<T: SyncUnsignedInteger+std::hash::Hash> HashOrBitset<T> {
+	#[inline(always)]
+	pub fn new_bit(capacity: usize) -> Self {
+		HashOrBitset::Bit(<BitSet<T> as HashSetLike<T>>::new(capacity))
+	}
+	#[inline(always)]
+	pub fn new_hash(capacity: usize) -> Self {
+		HashOrBitset::Hash(<foldhash::HashSet<T> as HashSetLike<T>>::new(capacity))
+	}
+}
+impl<T: SyncUnsignedInteger+std::hash::Hash> HashSetLike<T> for HashOrBitset<T> {
+	#[inline(always)]
+	fn new(capacity: usize) -> Self {
+		/* 5M is approximately the empirically dervied threshold
+		 * when hashsets become faster in a HNSW-typical setting */
+		if capacity <= 5_000_000 {
+			HashOrBitset::new_bit(capacity)
+		} else {
+			HashOrBitset::new_hash(capacity)
+		}
+	}
+	#[inline(always)]
+	fn reserve(&mut self, additional: usize) {
+		match self {
+			HashOrBitset::Hash(h) => h.reserve(additional),
+			HashOrBitset::Bit(b) => b.reserve(additional),
+		}
+	}
+	#[inline(always)]
+	fn insert(&mut self, value: T) -> bool {
+		match self {
+			HashOrBitset::Hash(h) => h.insert(value),
+			HashOrBitset::Bit(b) => b.insert(value),
+		}
+	}
+	#[inline(always)]
+	fn contains(&self, value: &T) -> bool {
+		match self {
+			HashOrBitset::Hash(h) => h.contains(value),
+			HashOrBitset::Bit(b) => b.contains(value),
+		}
+	}
+	#[inline(always)]
+	fn clear(&mut self) {
+		match self {
+			HashOrBitset::Hash(h) => h.clear(),
+			HashOrBitset::Bit(b) => b.clear(),
+		}
+	}
+}
+#[test]
+fn test_hash_or_bitset() {
+	let mut vec: Vec<HashOrBitset<usize>> = Vec::new();
+	vec.push(HashOrBitset::new_bit(10));
+	vec.push(HashOrBitset::new_bit(1_000));
+	vec.push(HashOrBitset::new_bit(100_000));
+	vec.push(HashOrBitset::new_hash(10_000_000));
+	std::hint::black_box(&vec);
+}
+
+
+
+
+
+#[cfg(target_arch = "x86_64")]
 pub mod zero_benching {
 	#[inline(always)]
 	pub fn zero_initialized_vec_init<T: num::Zero + Copy>(size: usize) -> Vec<T> {
@@ -931,28 +1004,28 @@ pub mod zero_benching {
 		}
 		v
 	}
-	// #[inline(always)]
-	// pub fn zero_initialized_avx<T: num::Zero + Copy + Sized>(size: usize) -> Vec<T> {
-	// 	let bytesize = std::mem::size_of::<T>();
-	// 	let total_bytes = bytesize * size;
-	// 	let mut v = Vec::with_capacity(size);
-	// 	unsafe{
-	// 		v.set_len(size);
-	// 		use std::arch::x86_64::*;
-	// 		let start = v.get_unchecked_mut(0) as *mut T as *mut u8;
-	// 		let zeros = _mm256_setzero_si256();
-	// 		if start as usize % 32 != 0 {
-	// 			_mm256_storeu_si256(start as *mut __m256i, zeros);
-	// 			_mm256_storeu_si256((start as usize+total_bytes-32) as *mut __m256i, zeros);
-	// 		}
-	// 		let start = ((start as usize+31) & !31) as *mut u8;
-	// 		(0..total_bytes-32).step_by(32).for_each(|offset| {
-	// 			_mm_prefetch((start as usize+offset+32) as *const i8, _MM_HINT_T0);
-	// 			_mm256_store_si256((start as usize+offset) as *mut __m256i, zeros);
-	// 		});
-	// 	}
-	// 	v
-	// }
+	#[inline(always)]
+	pub fn zero_initialized_avx<T: num::Zero + Copy + Sized>(size: usize) -> Vec<T> {
+		let bytesize = std::mem::size_of::<T>();
+		let total_bytes = bytesize * size;
+		let mut v = Vec::with_capacity(size);
+		unsafe{
+			v.set_len(size);
+			use std::arch::x86_64::*;
+			let start = v.get_unchecked_mut(0) as *mut T as *mut u8;
+			let zeros = _mm256_setzero_si256();
+			if start as usize % 32 != 0 {
+				_mm256_storeu_si256(start as *mut __m256i, zeros);
+				_mm256_storeu_si256((start as usize+total_bytes-32) as *mut __m256i, zeros);
+			}
+			let start = ((start as usize+31) & !31) as *mut u8;
+			(0..total_bytes-32).step_by(32).for_each(|offset| {
+				_mm_prefetch((start as usize+offset+32) as *const i8, _MM_HINT_T0);
+				_mm256_store_si256((start as usize+offset) as *mut __m256i, zeros);
+			});
+		}
+		v
+	}
 	#[inline(always)]
 	pub fn zero_initialized_fill<T: num::Zero + Copy + Sized>(size: usize) -> Vec<T> {
 		let mut v = Vec::with_capacity(size);
@@ -969,8 +1042,8 @@ pub mod zero_benching {
 	pub fn zero_initialized_memset_u16(size: usize) -> Vec<u16> { zero_initialized_memset(size) }
 	#[inline(never)]
 	pub fn zero_initialized_memset_chunked_u16(size: usize) -> Vec<u16> { zero_initialized_memset(size) }
-	// #[inline(never)]
-	// pub fn zero_initialized_avx_u16(size: usize) -> Vec<u16> { zero_initialized_avx(size) }
+	#[inline(never)]
+	pub fn zero_initialized_avx_u16(size: usize) -> Vec<u16> { zero_initialized_avx(size) }
 	#[inline(never)]
 	pub fn zero_initialized_fill_u16(size: usize) -> Vec<u16> { zero_initialized_fill(size) }
 
@@ -1017,17 +1090,19 @@ pub mod zero_benching {
 			_bench_for_type!(callit "Fill init", zero_initialized_fill, $type, $size, $its);
 		};
 	}
-	// pub fn _bench_zero_init() {
-	// 	_bench_for_type!(u8, 100_000, 100);
-	// 	_bench_for_type!(u8, 10_000_000, 100);
-	// 	_bench_for_type!(u16, 100_000, 100);
-	// 	_bench_for_type!(u16, 10_000_000, 100);
-	// 	_bench_for_type!(f32, 100_000, 100);
-	// 	_bench_for_type!(f32, 10_000_000, 100);
-	// }
+	pub fn _bench_zero_init() {
+		_bench_for_type!(u8, 100_000, 100);
+		_bench_for_type!(u8, 10_000_000, 100);
+		_bench_for_type!(u16, 100_000, 100);
+		_bench_for_type!(u16, 10_000_000, 100);
+		_bench_for_type!(f32, 100_000, 100);
+		_bench_for_type!(f32, 10_000_000, 100);
+	}
 
-	// #[test]
-	// pub fn bench_zero_init() {
-	// 	_bench_zero_init();
-	// }
+	#[test]
+	pub fn bench_zero_init() {
+		_bench_zero_init();
+	}
 }
+
+

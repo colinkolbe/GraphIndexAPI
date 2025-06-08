@@ -14,6 +14,7 @@ pub mod types;
 pub mod vec_math;
 
 pub mod graphs;
+pub mod graph_ops;
 pub mod indices;
 
 
