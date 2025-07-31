@@ -106,6 +106,7 @@ impl VFMASqEuc<2> for f32 {
 }
 impl VFMASqEuc<4> for f32 {
 	#[inline(always)]
+	#[cfg(target_arch = "x86_64")]
 	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self {
 		debug_assert!(v1.len() == d && v2.len() == d); // bounds check
 		const LANES: usize = 4;
@@ -141,6 +142,7 @@ impl VFMASqEuc<4> for f32 {
 }
 impl VFMASqEuc<8> for f32 {
 	#[inline(always)]
+	#[cfg(target_arch = "x86_64")]
 	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self {
 		debug_assert!(v1.len() == d && v2.len() == d); // bounds check
 		const LANES: usize = 8;
@@ -214,6 +216,7 @@ impl VFMASqEuc<16> for f32 {
 }
 impl VFMASqEuc<2> for f64 {
 	#[inline(always)]
+	#[cfg(target_arch = "x86_64")]
 	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self {
 		debug_assert!(v1.len() == d && v2.len() == d); // bounds check
 		const LANES: usize = 2;
@@ -248,6 +251,7 @@ impl VFMASqEuc<2> for f64 {
 }
 impl VFMASqEuc<4> for f64 {
 	#[inline(always)]
+	#[cfg(target_arch = "x86_64")]
 	fn sq_euc(v1: &[Self], v2: &[Self], d: usize) -> Self {
 		debug_assert!(v1.len() == d && v2.len() == d); // bounds check
 		const LANES: usize = 4;

@@ -975,7 +975,7 @@ fn test_hash_or_bitset() {
 
 
 
-
+#[cfg(target_arch = "x86_64")]
 pub mod zero_benching {
 	#[inline(always)]
 	pub fn zero_initialized_vec_init<T: num::Zero + Copy>(size: usize) -> Vec<T> {
